@@ -58,6 +58,76 @@ def health():
     return jsonify({"status": "ok", "ts": datetime.now(timezone.utc).isoformat()})
 
 
+# ── Demo verifier (no auth, rate-limited) ─────────────────
+
+@app.route("/api/demo-verify")
+@limiter.limit("5 per hour")
+def demo_verify():
+    """Free URL verifier — no signup required. The landing page hook."""
+    url = request.args.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "Please paste a job posting URL", "status": "error"}), 400
+    if not url.startswith("http"):
+        url = "https://" + url
+    if len(url) > 2000:
+        return jsonify({"error": "URL too long", "status": "error"}), 400
+
+    from verifier import verify_one
+
+    # Detect board type from URL
+    board = "direct"
+    if "greenhouse.io" in url:
+        board = "greenhouse"
+    elif "lever.co" in url:
+        board = "lever"
+    elif "workday" in url:
+        board = "workday"
+
+    job = {"title": "", "company": "", "apply_url": url, "job_board": board}
+
+    try:
+        result = verify_one(job, {"degree_level": "Master"}, {"visa_needed": False})
+        a = result.get("audit", {})
+
+        # Try to extract title/company from the page
+        import requests as req
+        from bs4 import BeautifulSoup
+        try:
+            r = req.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "lxml")
+                title_tag = soup.find("title")
+                if title_tag:
+                    result["page_title"] = title_tag.get_text(strip=True)[:120]
+                # Try OG tags
+                og_title = soup.find("meta", property="og:title")
+                if og_title:
+                    result["job_title"] = og_title.get("content", "")[:100]
+                og_site = soup.find("meta", property="og:site_name")
+                if og_site:
+                    result["company"] = og_site.get("content", "")[:60]
+        except Exception:
+            pass
+
+        return jsonify({
+            "status": a.get("status", "⚠ Unverified"),
+            "confidence": a.get("confidence", "low"),
+            "reason": a.get("reason", "Could not determine"),
+            "posting_age_days": a.get("posting_age_days"),
+            "ghost_risk": a.get("ghost_risk", "unknown"),
+            "job_title": result.get("job_title", result.get("page_title", "")),
+            "company": result.get("company", ""),
+            "url": url,
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "⚠ Unverified",
+            "confidence": "low",
+            "reason": f"Verification error: {str(e)[:80]}",
+            "url": url,
+        })
+
+
 # ── Auth: sync user ────────────────────────────────────────
 
 @app.route("/api/sync-user", methods=["POST"])

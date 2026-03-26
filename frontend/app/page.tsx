@@ -2,16 +2,34 @@
 
 import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5002";
 
 export default function Landing() {
   const { data: session } = useSession();
   const router = useRouter();
+  const [demoUrl, setDemoUrl] = useState("");
+  const [demoResult, setDemoResult] = useState<any>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   useEffect(() => {
     if (session) router.push("/dashboard");
   }, [session, router]);
+
+  const runDemo = async () => {
+    if (!demoUrl.trim()) return;
+    setDemoLoading(true);
+    setDemoResult(null);
+    try {
+      const r = await fetch(`${API}/api/demo-verify?url=${encodeURIComponent(demoUrl.trim())}`);
+      setDemoResult(await r.json());
+    } catch {
+      setDemoResult({ status: "\u26A0 Unverified", reason: "Could not reach verification service" });
+    }
+    setDemoLoading(false);
+  };
 
   return (
     <main className="min-h-screen">
@@ -53,6 +71,67 @@ export default function Landing() {
           <span className="text-sm text-muted">
             3 free searches &bull; Takes 2 minutes
           </span>
+        </div>
+      </section>
+
+      {/* ── Demo verifier (CHANGE 1: prove it before signup) ── */}
+      <section className="max-w-2xl mx-auto px-8 py-16">
+        <div className="bg-surface rounded-2xl p-6 md:p-8 border border-border">
+          <h2 className="text-xl font-serif mb-2 text-center">Is that job posting still open?</h2>
+          <p className="text-sm text-muted text-center mb-6">Paste any job URL. We'll check in 10 seconds. Free, no signup.</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={demoUrl}
+              onChange={e => setDemoUrl(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && runDemo()}
+              placeholder="https://boards.greenhouse.io/company/jobs/12345"
+              className="flex-1 bg-card border border-border rounded-lg px-4 py-3 text-sm text-white placeholder-muted/40 focus:border-accent outline-none"
+            />
+            <button onClick={runDemo} disabled={demoLoading || !demoUrl.trim()}
+              className={`px-5 py-3 rounded-lg text-sm font-semibold transition shrink-0 ${
+                demoLoading ? "bg-card text-muted" : "btn-blue"
+              }`}>
+              {demoLoading ? "\u21BB Checking..." : "Check"}
+            </button>
+          </div>
+
+          {demoResult && (
+            <div className={`mt-5 p-4 rounded-lg border ${
+              demoResult.status?.includes("Open") ? "bg-open/10 border-open/30" :
+              demoResult.status?.includes("Closed") ? "bg-closed/10 border-closed/30" :
+              "bg-warn/10 border-warn/30"
+            }`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-lg ${
+                  demoResult.status?.includes("Open") ? "text-open" :
+                  demoResult.status?.includes("Closed") ? "text-closed" : "text-warn"
+                }`}>
+                  {demoResult.status?.includes("Open") ? "\u2713" : demoResult.status?.includes("Closed") ? "\u2717" : "\u26A0"}
+                </span>
+                <span className="font-semibold text-sm">{demoResult.status}</span>
+                {demoResult.confidence && (
+                  <span className="text-[10px] text-muted">({demoResult.confidence} confidence)</span>
+                )}
+              </div>
+              {(demoResult.job_title || demoResult.company) && (
+                <div className="text-sm text-muted mb-1">
+                  {demoResult.company && <span className="text-white">{demoResult.company}</span>}
+                  {demoResult.company && demoResult.job_title && " \u2014 "}
+                  {demoResult.job_title}
+                </div>
+              )}
+              <div className="text-xs text-muted">{demoResult.reason}</div>
+              {demoResult.posting_age_days && (
+                <div className="text-xs text-muted mt-1">Posted ~{demoResult.posting_age_days} days ago</div>
+              )}
+              <div className="mt-4 pt-3 border-t border-border/50 text-center">
+                <button onClick={() => signIn("google")} className="btn-gold text-sm">
+                  Sign up free to verify all your jobs at once
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

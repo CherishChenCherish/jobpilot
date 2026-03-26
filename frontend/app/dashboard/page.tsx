@@ -3,6 +3,7 @@
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
+import { useOnboarding, OnboardingModal } from "@/components/onboarding";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5002";
 
@@ -92,12 +93,26 @@ function DashboardInner() {
   const [progressLog, setProgressLog] = useState<string[]>([]);
   const [showAudit, setShowAudit] = useState(false);
 
-  // Preferences
+  // Onboarding
+  const { showOnboarding, onboardingData, completeOnboarding } = useOnboarding();
+
+  // Preferences (pre-filled from onboarding if available)
   const [jobType, setJobType] = useState("intern_2026");
-  const [degreeTarget, setDegreeTarget] = useState("masters");  // undergrad | masters | phd
+  const [degreeTarget, setDegreeTarget] = useState("masters");
   const [directions, setDirections] = useState<string[]>(["DS/ML", "Health Informatics"]);
   const [customDirection, setCustomDirection] = useState("");
   const [visaNeeded, setVisaNeeded] = useState(true);
+  const [prefsInitialized, setPrefsInitialized] = useState(false);
+
+  // Pre-fill from onboarding answers
+  useEffect(() => {
+    if (onboardingData && !prefsInitialized) {
+      if (onboardingData.jobType && onboardingData.jobType !== "both") setJobType(onboardingData.jobType);
+      if (onboardingData.directions?.length) setDirections(onboardingData.directions);
+      setVisaNeeded(onboardingData.visaNeeded);
+      setPrefsInitialized(true);
+    }
+  }, [onboardingData, prefsInitialized]);
 
   useEffect(() => { if (authStatus === "unauthenticated") router.push("/"); }, [authStatus, router]);
 
@@ -213,6 +228,9 @@ function DashboardInner() {
 
   return (
     <main className="min-h-screen">
+      {/* Onboarding modal (CHANGE 2: first-time user) */}
+      {showOnboarding && <OnboardingModal onComplete={completeOnboarding} />}
+
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-open/20 border border-open/40 text-open px-4 py-3 rounded-lg text-sm shadow-lg animate-fade-in">
@@ -549,7 +567,59 @@ function DashboardInner() {
               </div>
             )}
 
-            {/* Job cards */}
+            {/* ── CHANGE 3: Best match highlight ── */}
+            {result.jobs.length > 0 && (() => {
+              // Find best job: confirmed open, lowest age, has CL
+              const best = result.jobs.reduce((a, b) => {
+                const aOpen = a.audit?.status?.includes("Open") ? 1 : 0;
+                const bOpen = b.audit?.status?.includes("Open") ? 1 : 0;
+                if (bOpen > aOpen) return b;
+                if (aOpen > bOpen) return a;
+                const aAge = a.audit?.posting_age_days ?? 999;
+                const bAge = b.audit?.posting_age_days ?? 999;
+                if (bAge < aAge) return b;
+                const aScore = a.cover_letter?.score ?? 0;
+                const bScore = b.cover_letter?.score ?? 0;
+                return bScore > aScore ? b : a;
+              });
+              const bestIdx = result.jobs.indexOf(best);
+              return best.audit?.status?.includes("Open") && best.cover_letter?.text ? (
+                <div className="mb-6 bg-gradient-to-r from-accent/10 via-surface to-surface rounded-2xl border border-accent/30 p-6">
+                  <div className="text-xs text-accent font-semibold mb-3 uppercase tracking-wider">Best match to apply today</div>
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <div className="text-lg font-semibold">{best.company}</div>
+                      <div className="text-sm text-muted">{best.title}</div>
+                      <div className="text-xs text-muted mt-1">{best.location}</div>
+                    </div>
+                    <a href={best.apply_url} target="_blank" rel="noopener noreferrer"
+                      className="btn-gold text-sm shrink-0">Apply \u2192</a>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 my-3">
+                    <StatusBadge status={best.audit.status} />
+                    {best.audit.posting_age_days != null && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-muted">{best.audit.posting_age_days}d ago</span>
+                    )}
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-accent/30 text-accent">
+                      CL {best.cover_letter.score}/{best.cover_letter.max_score}
+                    </span>
+                  </div>
+                  {/* CL open by default */}
+                  <div className="mt-4 p-4 bg-bg rounded-lg border border-border/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-muted">Cover letter (ready to paste)</span>
+                      <button onClick={() => { navigator.clipboard.writeText(best.cover_letter!.text); setCopied(bestIdx); setTimeout(() => setCopied(null), 2000); }}
+                        className={`text-xs px-3 py-1 rounded transition ${copied === bestIdx ? "bg-open/10 text-open" : "bg-card text-muted hover:text-white"}`}>
+                        {copied === bestIdx ? "Copied \u2713" : "Copy"}
+                      </button>
+                    </div>
+                    <pre className="text-sm text-muted/90 whitespace-pre-wrap font-sans leading-relaxed">{best.cover_letter.text}</pre>
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
+            {/* Job cards grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {result.jobs.map((job, idx) => (
                 <div key={idx} className="job-card">
