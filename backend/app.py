@@ -248,8 +248,8 @@ def search_route():
             "errors": ["No jobs found matching your criteria. Try broadening your search directions."],
         }), 200
 
-    # Top 20 for verification (Railway Pro has no timeout limit)
-    to_verify = all_jobs[:20]
+    # Top 8 for verification (keep under 20s for reliable response)
+    to_verify = all_jobs[:8]
 
     # ── STAGE 2: Verify ──────────────────────────────────
     print(f"[pipeline] Stage 2: Verifying {len(to_verify)} jobs...")

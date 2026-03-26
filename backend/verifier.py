@@ -160,7 +160,7 @@ def _fetch_page(url: str) -> dict:
     """Fetch URL, return structured result with clean text and soup."""
     result = {"url": url, "final_url": url, "status": 0, "text": "", "soup": None, "error": None}
     try:
-        r = requests.get(url, headers=HEADERS, timeout=12, allow_redirects=True)
+        r = requests.get(url, headers=HEADERS, timeout=6, allow_redirects=True)
         result["final_url"] = r.url
         result["status"] = r.status_code
         if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
