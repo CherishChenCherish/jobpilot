@@ -166,16 +166,24 @@ function DashboardInner() {
 
     try {
       // PHASE 1: Search + verify (fast, ~15s)
+      const searchBody = JSON.stringify({
+        google_id: (session?.user as any)?.google_id,
+        profile, prefs: { directions, job_type: jobType, degree_target: degreeTarget, visa_needed: visaNeeded },
+      });
       const res = await fetch(`${API}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          google_id: (session?.user as any)?.google_id,
-          profile, prefs: { directions, job_type: jobType, degree_target: degreeTarget, visa_needed: visaNeeded },
-        }),
+        body: searchBody,
       });
       clearTimeout(timer1);
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Handle invalid JSON (e.g. control characters in response)
+        data = JSON.parse(text.replace(/[\x00-\x1f\x7f]/g, ' '));
+      }
       if (data.error === "quota_exceeded") {
         setError("Free plan limit reached. Upgrade to Pro for unlimited searches.");
         setPhase("parsed");
@@ -222,9 +230,9 @@ function DashboardInner() {
         }
         setClsLoading(false);
       }
-    } catch {
+    } catch (err) {
       clearTimeout(timer1);
-      setError("Search failed. Please try again.");
+      setError(`Search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`);
       setPhase("parsed");
     }
   }, [profile, directions, jobType, degreeTarget, visaNeeded, session, user]);
