@@ -94,7 +94,9 @@ function DashboardInner() {
 
   // Preferences
   const [jobType, setJobType] = useState("intern_2026");
+  const [degreeTarget, setDegreeTarget] = useState("masters");  // undergrad | masters | phd
   const [directions, setDirections] = useState<string[]>(["DS/ML", "Health Informatics"]);
+  const [customDirection, setCustomDirection] = useState("");
   const [visaNeeded, setVisaNeeded] = useState(true);
 
   useEffect(() => { if (authStatus === "unauthenticated") router.push("/"); }, [authStatus, router]);
@@ -155,7 +157,7 @@ function DashboardInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           google_id: (session?.user as any)?.google_id,
-          profile, prefs: { directions, job_type: jobType, visa_needed: visaNeeded },
+          profile, prefs: { directions, job_type: jobType, degree_target: degreeTarget, visa_needed: visaNeeded },
         }),
       });
       clearTimeout(timer1);
@@ -279,9 +281,9 @@ function DashboardInner() {
                     "bg-closed/10 border-b border-closed/20"
                   }`}>
                     <span className="text-sm font-semibold">
-                      {profile.extraction_confidence?.score >= 80 ? "&#10003; Profile parsed successfully" :
-                       profile.extraction_confidence?.score >= 50 ? "&#9888; Partial extraction \u2014 review below" :
-                       "&#9888; Low confidence \u2014 please check all fields"}
+                      {profile.extraction_confidence?.score >= 80 ? "\u2713 Profile parsed successfully" :
+                       profile.extraction_confidence?.score >= 50 ? "\u26A0 Partial extraction \u2014 review below" :
+                       "\u26A0 Low confidence \u2014 please check all fields"}
                     </span>
                     <span className="text-xs text-muted">
                       {profile.extraction_confidence?.score || "?"}% confidence
@@ -374,10 +376,15 @@ function DashboardInner() {
             <div>
               <h2 className="text-2xl font-serif mb-5">Search preferences</h2>
               <div className="bg-surface rounded-xl p-5 md:p-6 border border-border space-y-5">
+                {/* Job type */}
                 <div>
                   <label className="text-xs text-muted mb-2 block">What are you looking for?</label>
-                  <div className="flex gap-2">
-                    {[{ v: "intern_2026", l: "Summer 2026 Internship" }, { v: "new_grad_2027", l: "Full-time 2027" }].map(o => (
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { v: "intern_2026", l: "Summer 2026 Internship" },
+                      { v: "new_grad_2027", l: "Full-time 2027" },
+                      { v: "co_op_2026", l: "Co-op / Part-time" },
+                    ].map(o => (
                       <button key={o.v} onClick={() => setJobType(o.v)}
                         className={`px-4 py-2 rounded-lg text-sm transition ${jobType === o.v ? "bg-accent text-white" : "bg-card text-muted hover:text-white"}`}>
                         {o.l}
@@ -386,23 +393,68 @@ function DashboardInner() {
                   </div>
                 </div>
 
+                {/* Degree level */}
+                <div>
+                  <label className="text-xs text-muted mb-2 block">Target degree level</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { v: "undergrad", l: "Undergraduate" },
+                      { v: "masters", l: "Master\u2019s" },
+                      { v: "phd", l: "PhD" },
+                    ].map(o => (
+                      <button key={o.v} onClick={() => setDegreeTarget(o.v)}
+                        className={`px-4 py-2 rounded-lg text-sm transition ${degreeTarget === o.v ? "bg-accent text-white" : "bg-card text-muted hover:text-white"}`}>
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted/50 mt-1">We filter out jobs requiring a higher degree than selected</p>
+                </div>
+
+                {/* Directions */}
                 <div>
                   <label className="text-xs text-muted mb-2 block">Directions (select all that apply)</label>
                   <div className="flex flex-wrap gap-2">
-                    {["DS/ML", "Health Informatics", "Business Analytics"].map(d => (
+                    {[
+                      "DS/ML", "Data Engineering", "Software Engineering",
+                      "Health Informatics", "Business Analytics", "Product Management",
+                      "Quantitative Finance", "Research / NLP", "Consulting",
+                    ].map(d => (
                       <button key={d} onClick={() => toggleDir(d)}
                         className={`px-3 py-1.5 rounded-full text-sm transition border ${
                           directions.includes(d) ? "border-accent text-accent bg-accent/10" : "border-border text-muted hover:border-muted"
                         }`}>{d}</button>
                     ))}
                   </div>
+                  {/* Custom direction input */}
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      type="text"
+                      value={customDirection}
+                      onChange={e => setCustomDirection(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && customDirection.trim()) {
+                          toggleDir(customDirection.trim());
+                          setCustomDirection("");
+                        }
+                      }}
+                      placeholder="Add custom direction..."
+                      className="flex-1 bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-white placeholder-muted/40 focus:border-accent outline-none"
+                    />
+                    <button
+                      onClick={() => { if (customDirection.trim()) { toggleDir(customDirection.trim()); setCustomDirection(""); } }}
+                      className="px-3 py-1.5 rounded-lg text-sm bg-card border border-border text-muted hover:text-accent hover:border-accent transition"
+                    >+</button>
+                  </div>
                 </div>
 
+                {/* Visa */}
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={visaNeeded} onChange={e => setVisaNeeded(e.target.checked)} className="accent-accent w-4 h-4" />
                   <span className="text-sm text-muted">I need visa sponsorship (OPT / CPT / H-1B)</span>
                 </label>
 
+                {/* CTA */}
                 <button onClick={handleSearch} disabled={phase !== "parsed" || isProcessing}
                   className={`w-full py-3.5 rounded-lg text-base font-bold transition ${
                     phase === "parsed" ? "btn-gold" : "bg-card text-muted/40 cursor-not-allowed"

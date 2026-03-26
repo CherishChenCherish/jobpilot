@@ -26,22 +26,22 @@ load_dotenv()
 GREENHOUSE_COMPANIES = {
     # slug: [categories]
     # ── DS/ML / Tech ──
-    "databricks": ["DS/ML"],
-    "palantir": ["DS/ML"],
-    "anduril": ["DS/ML"],
-    "scale": ["DS/ML"],
-    "duolingo": ["DS/ML"],
-    "figma": ["DS/ML"],
-    "notion": ["DS/ML"],
-    "stripe": ["DS/ML"],
-    "plaid": ["DS/ML"],
-    "ramp": ["DS/ML"],
-    "brex": ["DS/ML"],
-    "retool": ["DS/ML"],
-    "airtable": ["DS/ML"],
-    "verkada": ["DS/ML"],
-    "gusto": ["DS/ML", "Business Analytics"],
-    "rivian": ["DS/ML"],
+    "databricks": ["DS/ML", "Data Engineering", "Software Engineering"],
+    "palantir": ["DS/ML", "Software Engineering"],
+    "anduril": ["DS/ML", "Software Engineering"],
+    "scale": ["DS/ML", "Research / NLP"],
+    "duolingo": ["DS/ML", "Software Engineering", "Product Management"],
+    "figma": ["DS/ML", "Software Engineering", "Product Management"],
+    "notion": ["DS/ML", "Software Engineering", "Product Management"],
+    "stripe": ["DS/ML", "Software Engineering", "Data Engineering"],
+    "plaid": ["DS/ML", "Software Engineering", "Data Engineering"],
+    "ramp": ["DS/ML", "Business Analytics", "Software Engineering"],
+    "brex": ["DS/ML", "Software Engineering"],
+    "retool": ["DS/ML", "Software Engineering"],
+    "airtable": ["DS/ML", "Software Engineering", "Product Management"],
+    "verkada": ["DS/ML", "Software Engineering"],
+    "gusto": ["DS/ML", "Business Analytics", "Software Engineering"],
+    "rivian": ["DS/ML", "Software Engineering", "Data Engineering"],
     # ── Health / Biotech ──
     "tempus": ["DS/ML", "Health Informatics"],
     "flatiron": ["DS/ML", "Health Informatics"],
@@ -61,14 +61,14 @@ GREENHOUSE_COMPANIES = {
 }
 
 LEVER_COMPANIES = {
-    "matchgroup": ["DS/ML"],
-    "grammarly": ["DS/ML"],
-    "samsara": ["DS/ML"],
-    "relativity": ["DS/ML"],
-    "zocdoc": ["Health Informatics"],
-    "viz-ai": ["Health Informatics", "DS/ML"],
-    "everbridge": ["DS/ML"],
-    "flockfreight": ["DS/ML"],
+    "matchgroup": ["DS/ML", "Software Engineering"],
+    "grammarly": ["DS/ML", "Research / NLP", "Software Engineering"],
+    "samsara": ["DS/ML", "Software Engineering", "Data Engineering"],
+    "relativity": ["DS/ML", "Software Engineering"],
+    "zocdoc": ["Health Informatics", "Software Engineering"],
+    "viz-ai": ["Health Informatics", "DS/ML", "Software Engineering"],
+    "everbridge": ["DS/ML", "Software Engineering"],
+    "flockfreight": ["DS/ML", "Data Engineering"],
     "clearcover": ["DS/ML", "Business Analytics"],
 }
 
@@ -175,7 +175,7 @@ CURATED_JOBS = {
             "key_requirements": ["MS/PhD quantitative", "Python/R", "Statistics", "ML"],
             "match_reason": "Quant fund, strong academic + Kaggle + NLP background matches",
             "recommended_cv": "V1-DS",
-            "categories": ["DS/ML"],
+            "categories": ["DS/ML", "Quantitative Finance"],
             "company_size": "mid",
         },
         {
@@ -237,32 +237,54 @@ def _ts_to_date(ts) -> str:
 # Personalized keyword builder
 # ══════════════════════════════════════════════════════════
 
+DIRECTION_KEYWORDS = {
+    "DS/ML": ["data science", "data scientist", "machine learning", "ml engineer",
+              "data analyst", "data engineer", "ai ", "deep learning", "nlp"],
+    "Data Engineering": ["data engineer", "data pipeline", "etl", "data infrastructure",
+                         "data platform", "analytics engineer"],
+    "Software Engineering": ["software engineer", "software developer", "swe ", "backend",
+                             "frontend", "full stack", "fullstack", "web developer"],
+    "Health Informatics": ["health informatics", "clinical data", "biomedical", "bioinformatics",
+                           "health data", "clinical informatics", "pharma", "biostatist"],
+    "Business Analytics": ["business analyst", "strategy", "business intelligence",
+                           "analytics", "operations analyst"],
+    "Product Management": ["product manager", "product analyst", "program manager", "tpm",
+                           "technical program"],
+    "Quantitative Finance": ["quant", "quantitative", "trading", "risk analyst",
+                             "financial analyst", "portfolio"],
+    "Research / NLP": ["research scientist", "research engineer", "research intern",
+                       "nlp", "natural language", "computational linguist"],
+    "Consulting": ["consultant", "consulting", "advisory", "strategy analyst"],
+}
+
+
 def _build_keywords(profile: dict, prefs: dict) -> tuple[list[str], list[str]]:
-    """Build title keywords from candidate's actual profile, not templates."""
+    """Build title keywords from candidate's actual profile + selected directions."""
     directions = prefs.get("directions", ["DS/ML"])
     job_type = prefs.get("job_type", "intern_2026")
 
-    # Start with direction-specific keywords
     title_kw = []
-    if "DS/ML" in directions:
-        # Use candidate's actual top skills to build queries
-        profile_skills = [s.lower() for s in profile.get("skills", [])]
-        if any("nlp" in s for s in profile_skills):
-            title_kw.append("nlp")
-        if any("deep learning" in s for s in profile_skills):
-            title_kw.append("deep learning")
-        title_kw += ["data science", "data scientist", "machine learning", "ml engineer",
-                     "data analyst", "data engineer", "ai "]
-    if "Health Informatics" in directions:
-        title_kw += ["health informatics", "clinical data", "biomedical", "bioinformatics",
-                     "health data", "clinical informatics", "pharma"]
-    if "Business Analytics" in directions:
-        title_kw += ["business analyst", "strategy", "business intelligence", "analytics"]
+    for d in directions:
+        if d in DIRECTION_KEYWORDS:
+            title_kw.extend(DIRECTION_KEYWORDS[d])
+        else:
+            # Custom direction: use the text itself as keyword + lowercase
+            title_kw.append(d.lower())
+
+    # Also add candidate's top skills as search keywords
+    profile_skills = [s.lower() for s in profile.get("skills", [])]
+    for skill in profile_skills[:5]:
+        if skill not in title_kw and len(skill) > 2:
+            title_kw.append(skill)
+
+    # Deduplicate
+    title_kw = list(dict.fromkeys(title_kw))
 
     # Career stage keywords
-    stage_kw = []
     if job_type == "intern_2026":
         stage_kw = ["intern", "internship", "co-op", "2026"]
+    elif job_type == "co_op_2026":
+        stage_kw = ["co-op", "coop", "part-time", "part time", "intern", "2026"]
     else:
         stage_kw = ["new grad", "entry level", "junior", "associate", "2027", "2026"]
 
