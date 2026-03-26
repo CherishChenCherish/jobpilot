@@ -191,7 +191,12 @@ def parse_resume_route():
     file_bytes = file.read()
     try:
         profile = parse_resume(file_bytes, file.filename)
-        return jsonify({"status": "parsed", "profile": profile})
+        # Sanitize: remove control characters that break JSON in transit
+        import re as _re
+        clean_profile = json.loads(
+            _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(profile, ensure_ascii=False))
+        )
+        return jsonify({"status": "parsed", "profile": clean_profile})
     except ParseError as e:
         return jsonify({"error": str(e)}), 422
     except Exception as e:
@@ -322,12 +327,16 @@ def search_route():
 
     print(f"[pipeline] Complete: {audit_summary['jobs_verified']} verified, CLs pending, search_id={search_id}")
 
-    return jsonify({
+    # Sanitize response to remove control characters
+    import re as _re
+    response_data = {
         "search_id": search_id,
         "jobs": result_jobs,
         "audit_summary": audit_summary,
         "errors": errors if errors else None,
-    })
+    }
+    clean_json = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(response_data, ensure_ascii=False))
+    return app.response_class(clean_json, mimetype='application/json')
 
 
 # ── POST /api/generate-cls — generate CLs for given jobs ──
