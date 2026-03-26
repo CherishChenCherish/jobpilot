@@ -1,0 +1,16 @@
+# Backend
+backend/.env
+backend/*.db
+backend/instance/
+backend/__pycache__/
+backend/venv/
+*.pyc
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# OS
+.DS_Store
+*.swp
