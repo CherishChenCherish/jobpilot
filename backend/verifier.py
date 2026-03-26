@@ -1,8 +1,20 @@
-"""JobPilot job verifier — confirm each posting is genuinely still open."""
+"""JobPilot verifier v2 — paranoid about accuracy.
 
+Philosophy: An honest "unverified" beats a wrong "open".
+A "closed" on a truly closed job is critical value.
+A "open" on a truly closed job destroys trust instantly.
+
+Approach:
+1. ATS API verification first (Greenhouse/Lever) — 100% definitive
+2. HTML analysis second — look for definitive signals only
+3. When ambiguous, say "unverified" not "open"
+4. Ghost job detection: posting age > 60 days = high suspicion
+5. Parallel execution for speed
+"""
+
+import json
 import os
 import re
-import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -15,15 +27,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Constants ──────────────────────────────────────────────
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-CLOSED_PHRASES = [
+# ── Signal dictionaries ───────────────────────────────────
+
+CLOSED_SIGNALS = [
     "this job is no longer available",
     "this position has been filled",
     "this posting has expired",
@@ -40,33 +52,34 @@ CLOSED_PHRASES = [
     "this position is closed",
     "job not found",
     "the position you are looking for is no longer posted",
+    "this page isn't available",
+    "we couldn't find that page",
+    "page not found",
 ]
 
-OPEN_PHRASES = [
+OPEN_SIGNALS = [
     "apply now",
     "apply for this job",
     "submit application",
     "apply for this position",
-    "apply to this role",
     "start application",
-    "easy apply",
-    "quick apply",
-    "apply with linkedin",
     "submit your application",
     "apply for this role",
+    "apply to this job",
 ]
 
-PHD_PHRASES = [
+PHD_SIGNALS = [
     "phd required",
     "doctoral degree required",
     "ph.d. required",
     "ph.d required",
     "requires a phd",
     "must have a phd",
-    "current phd student",  # for intern postings requiring PhD enrollment
+    "current phd student",
+    "currently enrolled in a phd",
 ]
 
-NO_SPONSOR_PHRASES = [
+NO_SPONSOR = [
     "no sponsorship available",
     "not able to sponsor",
     "unable to sponsor",
@@ -77,183 +90,139 @@ NO_SPONSOR_PHRASES = [
     "us citizens and permanent residents only",
     "must be a u.s. citizen",
     "not eligible for visa sponsorship",
-    "is not available for work sponsorship",
+    "not available for work sponsorship",
+    "not eligible for f1",
+    "not eligible for f-1",
 ]
 
-SPONSOR_POSITIVE = [
+YES_SPONSOR = [
     "visa sponsorship",
     "will sponsor",
     "sponsorship available",
-    " opt ",
-    " cpt ",
-    " h-1b",
-    " h1b ",
-    "f-1 ",
-    "international students",
+    " opt ", " cpt ", " h-1b", " h1b ",
+    "f-1 ", "international students",
 ]
 
 
-# ── STEP A: Resolve best URL ──────────────────────────────
+# ══════════════════════════════════════════════════════════
+# ATS API verification — 100% definitive
+# ══════════════════════════════════════════════════════════
 
-def _resolve_url(job: dict) -> tuple[str, bool]:
-    """Determine the best URL to verify. Returns (url, needs_manual_check)."""
-    url = job.get("apply_url", "")
-    board = job.get("job_board", "")
+def _verify_greenhouse_api(url: str) -> tuple[str, str, str]:
+    """Returns (status, confidence, reason)."""
+    m = re.search(r"greenhouse\.io/([^/]+)/jobs/(\d+)", url)
+    if not m:
+        return "unknown", "low", ""
 
-    if not url or not url.startswith("http"):
-        return "", True
+    slug, job_id = m.group(1), m.group(2)
+    api_url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}"
+    try:
+        r = requests.get(api_url, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            title = data.get("title", "")
+            return "open", "high", f"Confirmed via Greenhouse API (job #{job_id} active)"
+        elif r.status_code == 404:
+            return "closed", "high", f"Greenhouse API 404 — job #{job_id} removed/unpublished"
+        else:
+            return "unknown", "low", f"Greenhouse API returned {r.status_code}"
+    except requests.Timeout:
+        return "unknown", "low", "Greenhouse API timeout"
+    except Exception:
+        return "unknown", "low", "Greenhouse API error"
 
-    # ATS boards are reliable — use directly
-    if board in ("greenhouse", "lever"):
-        return url, False
 
-    # LinkedIn URLs: try to use, but flag for manual check
-    if "linkedin.com" in url:
-        return url, True
+def _verify_lever_api(url: str) -> tuple[str, str, str]:
+    """Returns (status, confidence, reason)."""
+    try:
+        r = requests.get(url, timeout=8, allow_redirects=False, headers=HEADERS)
+        if r.status_code == 200:
+            return "open", "high", "Lever posting responds 200 (active)"
+        elif r.status_code in (301, 302):
+            # Lever redirects to /jobs when posting is removed
+            loc = r.headers.get("Location", "")
+            if "/jobs" in loc and "/jobs/" not in loc:
+                return "closed", "high", f"Lever redirected to jobs listing (posting removed)"
+            return "unknown", "medium", f"Lever redirected to {loc[:60]}"
+        elif r.status_code == 404:
+            return "closed", "high", "Lever 404 — posting removed"
+        else:
+            return "unknown", "low", f"Lever returned {r.status_code}"
+    except Exception:
+        return "unknown", "low", "Lever connection error"
 
-    # Direct company URLs — use as-is
-    return url, False
 
-
-# ── STEP B: Fetch page ────────────────────────────────────
+# ══════════════════════════════════════════════════════════
+# HTML page analysis — for non-ATS URLs
+# ══════════════════════════════════════════════════════════
 
 def _fetch_page(url: str) -> dict:
-    """Fetch a URL and return structured result."""
-    result = {
-        "original_url": url,
-        "final_url": url,
-        "http_status": 0,
-        "page_text": "",
-        "soup": None,
-        "error": None,
-    }
-
+    """Fetch URL, return structured result with clean text and soup."""
+    result = {"url": url, "final_url": url, "status": 0, "text": "", "soup": None, "error": None}
     try:
         r = requests.get(url, headers=HEADERS, timeout=12, allow_redirects=True)
         result["final_url"] = r.url
-        result["http_status"] = r.status_code
-
-        if r.status_code == 200:
+        result["status"] = r.status_code
+        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
             soup = BeautifulSoup(r.text, "lxml")
-            # Remove script/style tags for cleaner text
-            for tag in soup(["script", "style", "noscript"]):
+            for tag in soup(["script", "style", "noscript", "nav", "footer"]):
                 tag.decompose()
-            result["page_text"] = re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).lower()
+            result["text"] = re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).lower()
             result["soup"] = soup
     except requests.Timeout:
         result["error"] = "timeout"
     except requests.ConnectionError:
         result["error"] = "connection_error"
     except Exception as e:
-        result["error"] = str(e)
-
+        result["error"] = str(e)[:100]
     return result
 
 
-# ── STEP C: Closed signal detection ──────────────────────
-
-def _check_closed(page: dict) -> tuple[bool, str]:
-    """Check for closed signals. Returns (is_closed, reason)."""
-    status = page["http_status"]
-
-    # HTTP-level signals
-    if status in (404, 410):
-        return True, f"HTTP {status} — page not found/removed"
-    if status == 0:
-        return False, ""  # couldn't fetch — not conclusively closed
-
-    # Redirect: job page → generic jobs listing = removed
-    orig = urlparse(page["original_url"])
+def _check_redirect_closed(page: dict) -> tuple[bool, str]:
+    """Redirect from specific job page to generic listing = closed."""
+    orig = urlparse(page["url"])
     final = urlparse(page["final_url"])
-    if orig.path != final.path:
-        # Original had a specific job ID, final is just /jobs or /careers
+    if orig.netloc == final.netloc and orig.path != final.path:
         orig_has_id = bool(re.search(r"\d{4,}", orig.path))
         final_is_listing = final.path.rstrip("/") in ("/jobs", "/careers", "/openings", "/en/jobs", "")
         if orig_has_id and final_is_listing:
-            return True, f"Redirected from job page to generic listing ({final.path})"
-
-    # Text-based closed signals
-    text = page["page_text"]
-    for phrase in CLOSED_PHRASES:
-        if phrase in text:
-            return True, f"Page contains closed signal: '{phrase}'"
-
+            return True, f"Redirected to generic listing ({final.path}) — job removed"
     return False, ""
 
 
-# ── STEP D: Open signal detection ─────────────────────────
-
-def _check_open(page: dict) -> tuple[bool, str]:
-    """Check for open signals. Returns (is_open, reason)."""
-    text = page["page_text"]
-    soup = page.get("soup")
-
-    # Text-based open signals
-    for phrase in OPEN_PHRASES:
+def _check_closed_text(text: str) -> tuple[bool, str]:
+    """Check for definitive closed signals in page text."""
+    for phrase in CLOSED_SIGNALS:
         if phrase in text:
-            return True, f"Found open signal: '{phrase}'"
+            return True, f"Closed signal found: '{phrase}'"
+    return False, ""
 
-    # Tag-based: look for apply buttons/links
+
+def _check_open_text(text: str, soup) -> tuple[bool, str]:
+    """Check for definitive open signals — text + buttons/links."""
+    # Text signals
+    for phrase in OPEN_SIGNALS:
+        if phrase in text:
+            return True, f"Open signal: '{phrase}'"
+
+    # Button/link elements with "apply"
     if soup:
         for tag in soup.find_all(["button", "a", "input"]):
             tag_text = tag.get_text(" ", strip=True).lower()
-            if "apply" in tag_text:
-                return True, f"Found apply element: <{tag.name}> '{tag_text[:40]}'"
-            # Also check href
-            href = tag.get("href", "").lower()
-            if "apply" in href or "application" in href:
-                return True, f"Found apply link in href: '{href[:60]}'"
+            if any(s in tag_text for s in ["apply", "submit application"]):
+                return True, f"Apply element found: <{tag.name}> '{tag_text[:30]}'"
+            href = (tag.get("href") or "").lower()
+            if "apply" in href:
+                return True, f"Apply link: href='{href[:40]}'"
 
     return False, ""
 
 
-# ── STEP E: Greenhouse/Lever API verification (bonus) ─────
-
-def _verify_via_api(job: dict) -> tuple[str, str]:
-    """For Greenhouse/Lever jobs, verify via their JSON API. Fast + definitive."""
-    board = job.get("job_board", "")
-    url = job.get("apply_url", "")
-
-    if board == "greenhouse":
-        # Extract company slug and job ID from URL
-        # Pattern: boards.greenhouse.io/COMPANY/jobs/ID or job-boards.greenhouse.io/COMPANY/jobs/ID
-        m = re.search(r"greenhouse\.io/([^/]+)/jobs/(\d+)", url)
-        if m:
-            slug, job_id = m.group(1), m.group(2)
-            api_url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}"
-            try:
-                r = requests.get(api_url, timeout=8)
-                if r.status_code == 200:
-                    return "open", "Confirmed open via Greenhouse API (job ID exists)"
-                elif r.status_code == 404:
-                    return "closed", "Greenhouse API returned 404 — job removed"
-            except Exception:
-                pass
-
-    elif board == "lever":
-        # Lever public API: /v0/postings/COMPANY/JOB_ID
-        # Or just check if the page loads
-        try:
-            r = requests.get(url, timeout=8, allow_redirects=False)
-            if r.status_code == 200:
-                return "open", "Lever posting responds 200"
-            elif r.status_code in (301, 302, 404):
-                return "closed", f"Lever returned {r.status_code}"
-        except Exception:
-            pass
-
-    return "unknown", ""
-
-
-# ── STEP F: Extract posting date ──────────────────────────
-
-def _extract_posting_date(page: dict) -> tuple[str | None, int | None]:
-    """Try to find when the job was posted. Returns (date_str, age_days)."""
-    text = page["page_text"]
-    soup = page.get("soup")
+def _extract_posting_date(text: str, soup) -> tuple[str | None, int | None]:
+    """Extract posting date. Returns (date_str, age_days)."""
     now = datetime.now(timezone.utc)
 
-    # 1. JSON-LD schema.org datePosted
+    # JSON-LD schema.org
     if soup:
         for script in soup.find_all("script", type="application/ld+json"):
             try:
@@ -263,93 +232,56 @@ def _extract_posting_date(page: dict) -> tuple[str | None, int | None]:
                 dp = data.get("datePosted")
                 if dp:
                     dt = datetime.fromisoformat(dp.replace("Z", "+00:00"))
-                    age = (now - dt).days
-                    return dp[:10], age
+                    return dp[:10], (now - dt).days
             except Exception:
                 pass
 
-    # 2. Meta tags
-    if soup:
-        for meta_name in ["article:published_time", "datePublished", "date"]:
-            tag = soup.find("meta", property=meta_name) or soup.find("meta", attrs={"name": meta_name})
-            if tag and tag.get("content"):
-                try:
-                    dt = datetime.fromisoformat(tag["content"].replace("Z", "+00:00"))
-                    age = (now - dt).days
-                    return tag["content"][:10], age
-                except Exception:
-                    pass
-
-    # 3. "X days/weeks ago" in text
+    # "X days/weeks ago"
     m = re.search(r"(\d+)\s+days?\s+ago", text)
     if m:
-        days = int(m.group(1))
-        return f"~{days} days ago", days
-
+        return f"~{m.group(1)}d ago", int(m.group(1))
     m = re.search(r"(\d+)\s+weeks?\s+ago", text)
     if m:
-        days = int(m.group(1)) * 7
-        return f"~{days} days ago", days
-
-    # 4. Explicit date patterns
-    m = re.search(r"(20\d{2}-\d{2}-\d{2})", text)
-    if m:
-        try:
-            dt = datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            age = (now - dt).days
-            return m.group(1), age
-        except Exception:
-            pass
+        d = int(m.group(1)) * 7
+        return f"~{d}d ago", d
 
     return None, None
 
 
-# ── STEP G: Degree check ─────────────────────────────────
-
-def _check_degree(page: dict, profile: dict) -> str:
+def _check_degree(text: str, degree: str) -> str:
     """Check if job requires PhD when candidate doesn't have one."""
-    text = page["page_text"]
-    user_degree = profile.get("degree_level", "Bachelor")
-
-    for phrase in PHD_PHRASES:
+    for phrase in PHD_SIGNALS:
         if phrase in text:
-            if user_degree != "PhD":
-                return "mismatch"
-            return "ok"
-    return "ok"  # No PhD requirement found
+            return "mismatch" if degree != "PhD" else "ok"
+    return "ok"
 
 
-# ── STEP H: Visa check ───────────────────────────────────
-
-def _check_visa(page: dict) -> str:
-    """Check visa sponsorship status from page text."""
-    text = page["page_text"]
-
-    # Check negative signals first (more definitive)
-    for phrase in NO_SPONSOR_PHRASES:
+def _check_visa(text: str) -> str:
+    """Check visa sponsorship signals."""
+    for phrase in NO_SPONSOR:
         if phrase in text:
             return "no_sponsor"
-
-    # Check positive signals
-    for phrase in SPONSOR_POSITIVE:
+    for phrase in YES_SPONSOR:
         if phrase in text:
             return "confirmed"
-
     return "unspecified"
 
 
-# ── Main: verify one job ──────────────────────────────────
+# ══════════════════════════════════════════════════════════
+# Main: verify one job
+# ══════════════════════════════════════════════════════════
 
 def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
-    """Verify a single job posting. Returns job dict with 'audit' key."""
+    """Verify a single job posting. Returns job with 'audit' key."""
     audit = {
         "url_checked": "",
         "final_url": "",
         "http_status": 0,
         "status": "⚠ Unverified",
         "confidence": "low",
-        "reason": "",
+        "reason": "Not yet checked",
         "posting_age_days": None,
+        "ghost_risk": "unknown",
         "degree_match": "unknown",
         "visa": "unspecified",
         "drop": False,
@@ -357,56 +289,77 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
         "needs_manual_check": False,
     }
 
-    # STEP A: Resolve URL
-    url, needs_manual = _resolve_url(job)
-    audit["needs_manual_check"] = needs_manual
+    url = job.get("apply_url", "")
+    board = job.get("job_board", "")
 
-    if not url:
-        audit["reason"] = "No valid URL to verify"
+    if not url or not url.startswith("http"):
+        audit["reason"] = "No valid URL"
+        audit["needs_manual_check"] = True
         job["audit"] = audit
         return job
 
     audit["url_checked"] = url
+    degree = profile.get("degree_level", "Master")
 
-    # Greenhouse/Lever: try API verification first (fast + definitive)
-    if job.get("job_board") in ("greenhouse", "lever"):
-        api_status, api_reason = _verify_via_api(job)
-        if api_status == "open":
-            audit["status"] = "✓ Open"
-            audit["confidence"] = "high"
-            audit["reason"] = api_reason
-            # Still fetch page for degree/visa checks
-            page = _fetch_page(url)
-            audit["final_url"] = page["final_url"]
-            audit["http_status"] = page["http_status"]
-            if page["page_text"]:
-                audit["degree_match"] = _check_degree(page, profile)
-                audit["visa"] = _check_visa(page)
-                _, age = _extract_posting_date(page)
-                audit["posting_age_days"] = age
-            # Degree mismatch → drop
-            if audit["degree_match"] == "mismatch":
+    # ── PRIORITY 1: ATS API verification (100% definitive) ──
+    if board == "greenhouse":
+        status, conf, reason = _verify_greenhouse_api(url)
+        if status in ("open", "closed"):
+            audit["status"] = "✓ Open" if status == "open" else "✗ Closed"
+            audit["confidence"] = conf
+            audit["reason"] = reason
+            if status == "closed":
                 audit["drop"] = True
-                audit["drop_reason"] = "PhD required — candidate has " + profile.get("degree_level", "?")
-            # Visa no_sponsor → drop if needed
-            if prefs.get("visa_needed") and audit["visa"] == "no_sponsor":
-                audit["drop"] = True
-                audit["drop_reason"] = "No visa sponsorship available"
-            job["audit"] = audit
-            return job
-        elif api_status == "closed":
-            audit["status"] = "✗ Closed"
-            audit["confidence"] = "high"
-            audit["reason"] = api_reason
-            audit["drop"] = True
-            audit["drop_reason"] = api_reason
+                audit["drop_reason"] = reason
+
+            # Still fetch page for degree/visa/age checks if open
+            if status == "open":
+                page = _fetch_page(url)
+                audit["final_url"] = page["final_url"]
+                audit["http_status"] = page["status"]
+                if page["text"]:
+                    audit["degree_match"] = _check_degree(page["text"], degree)
+                    audit["visa"] = _check_visa(page["text"])
+                    _, age = _extract_posting_date(page["text"], page.get("soup"))
+                    audit["posting_age_days"] = age
+                    audit["ghost_risk"] = "high" if age and age > 60 else ("medium" if age and age > 30 else "low")
+
+            _apply_drop_rules(audit, degree, prefs)
             job["audit"] = audit
             return job
 
-    # STEP B: Fetch page
+    if board == "lever":
+        status, conf, reason = _verify_lever_api(url)
+        if status in ("open", "closed"):
+            audit["status"] = "✓ Open" if status == "open" else "✗ Closed"
+            audit["confidence"] = conf
+            audit["reason"] = reason
+            if status == "closed":
+                audit["drop"] = True
+                audit["drop_reason"] = reason
+
+            if status == "open":
+                page = _fetch_page(url)
+                audit["final_url"] = page["final_url"]
+                audit["http_status"] = page["status"]
+                if page["text"]:
+                    audit["degree_match"] = _check_degree(page["text"], degree)
+                    audit["visa"] = _check_visa(page["text"])
+
+            _apply_drop_rules(audit, degree, prefs)
+            job["audit"] = audit
+            return job
+
+    # ── PRIORITY 2: HTML page analysis (for direct URLs) ────
+    if "linkedin.com" in url:
+        audit["needs_manual_check"] = True
+        audit["reason"] = "LinkedIn URLs cannot be reliably verified"
+        job["audit"] = audit
+        return job
+
     page = _fetch_page(url)
     audit["final_url"] = page["final_url"]
-    audit["http_status"] = page["http_status"]
+    audit["http_status"] = page["status"]
 
     if page["error"]:
         audit["reason"] = f"Fetch error: {page['error']}"
@@ -414,8 +367,29 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
         job["audit"] = audit
         return job
 
-    # STEP C: Check closed
-    is_closed, closed_reason = _check_closed(page)
+    # HTTP-level closed
+    if page["status"] in (404, 410):
+        audit["status"] = "✗ Closed"
+        audit["confidence"] = "high"
+        audit["reason"] = f"HTTP {page['status']} — page removed"
+        audit["drop"] = True
+        audit["drop_reason"] = audit["reason"]
+        job["audit"] = audit
+        return job
+
+    # Redirect closed
+    is_redirect_closed, redirect_reason = _check_redirect_closed(page)
+    if is_redirect_closed:
+        audit["status"] = "✗ Closed"
+        audit["confidence"] = "high"
+        audit["reason"] = redirect_reason
+        audit["drop"] = True
+        audit["drop_reason"] = redirect_reason
+        job["audit"] = audit
+        return job
+
+    # Text-based closed (check FIRST — closed is more definitive)
+    is_closed, closed_reason = _check_closed_text(page["text"])
     if is_closed:
         audit["status"] = "✗ Closed"
         audit["confidence"] = "high"
@@ -425,82 +399,95 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
         job["audit"] = audit
         return job
 
-    # STEP D: Check open
-    is_open, open_reason = _check_open(page)
+    # Text-based open
+    is_open, open_reason = _check_open_text(page["text"], page.get("soup"))
     if is_open:
         audit["status"] = "✓ Open"
         audit["confidence"] = "high"
         audit["reason"] = open_reason
-        # Continue to check degree/visa/age
     else:
+        # Ambiguous — be honest
         audit["status"] = "⚠ Unverified"
         audit["confidence"] = "low"
-        audit["reason"] = "No definitive open or closed signal found"
+        audit["reason"] = "No definitive open or closed signal found on page"
         audit["needs_manual_check"] = True
 
-    # STEP F: Posting date
-    date_str, age_days = _extract_posting_date(page)
-    audit["posting_age_days"] = age_days
-    if age_days and age_days > 90 and audit["status"] == "✓ Open":
-        audit["status"] = "⚠ Unverified"
-        audit["confidence"] = "medium"
-        audit["reason"] = f"Open signals found but posted {age_days} days ago — may be stale"
+    # Posting age + ghost risk
+    _, age = _extract_posting_date(page["text"], page.get("soup"))
+    audit["posting_age_days"] = age
+    if age:
+        if age > 90:
+            audit["ghost_risk"] = "high"
+            if audit["status"] == "✓ Open":
+                audit["status"] = "⚠ Unverified"
+                audit["confidence"] = "medium"
+                audit["reason"] = f"Apply button found but posted {age} days ago — possible ghost job"
+        elif age > 60:
+            audit["ghost_risk"] = "high"
+        elif age > 30:
+            audit["ghost_risk"] = "medium"
+        else:
+            audit["ghost_risk"] = "low"
 
-    # STEP G: Degree check
-    audit["degree_match"] = _check_degree(page, profile)
-    if audit["degree_match"] == "mismatch":
-        audit["drop"] = True
-        audit["drop_reason"] = "PhD required — candidate has " + profile.get("degree_level", "?")
+    # Degree + visa
+    audit["degree_match"] = _check_degree(page["text"], degree)
+    audit["visa"] = _check_visa(page["text"])
 
-    # STEP H: Visa check
-    if prefs.get("visa_needed", True):
-        audit["visa"] = _check_visa(page)
-        if audit["visa"] == "no_sponsor":
-            audit["drop"] = True
-            audit["drop_reason"] = "No visa sponsorship available"
-
+    _apply_drop_rules(audit, degree, prefs)
     job["audit"] = audit
     return job
 
 
-# ── Main: verify all jobs ─────────────────────────────────
+def _apply_drop_rules(audit: dict, degree: str, prefs: dict):
+    """Apply drop rules for degree mismatch and visa."""
+    if audit["degree_match"] == "mismatch" and not audit["drop"]:
+        audit["drop"] = True
+        audit["drop_reason"] = f"PhD required — candidate has {degree}"
+    if prefs.get("visa_needed") and audit["visa"] == "no_sponsor" and not audit["drop"]:
+        audit["drop"] = True
+        audit["drop_reason"] = "No visa sponsorship available"
+
+
+# ══════════════════════════════════════════════════════════
+# Main: verify all jobs in parallel
+# ══════════════════════════════════════════════════════════
 
 def verify_all_jobs(jobs: list[dict], profile: dict, prefs: dict) -> list[dict]:
-    """
-    Verify all jobs in parallel. Returns filtered list with audits.
-    Drops jobs where audit.drop == True.
-    """
+    """Verify all jobs in parallel. Returns kept list (dropped removed)."""
     verified = []
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = {executor.submit(verify_one, job, profile, prefs): job for job in jobs}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(verify_one, job, profile, prefs): i for i, job in enumerate(jobs)}
         for future in as_completed(futures):
             try:
                 result = future.result()
                 verified.append(result)
             except Exception as e:
-                job = futures[future]
+                idx = futures[future]
+                job = jobs[idx]
                 job["audit"] = {
-                    "status": "⚠ Unverified",
-                    "confidence": "low",
-                    "reason": f"Verification error: {e}",
-                    "drop": False,
-                    "needs_manual_check": True,
+                    "status": "⚠ Unverified", "confidence": "low",
+                    "reason": f"Verification error: {str(e)[:80]}",
+                    "drop": False, "needs_manual_check": True,
+                    "degree_match": "unknown", "visa": "unspecified",
+                    "posting_age_days": None, "ghost_risk": "unknown",
                 }
                 verified.append(job)
 
-    # Separate into kept and dropped
-    kept = [j for j in verified if not j.get("audit", {}).get("drop", False)]
-    dropped = [j for j in verified if j.get("audit", {}).get("drop", False)]
+    kept = [j for j in verified if not j.get("audit", {}).get("drop")]
+    dropped = [j for j in verified if j.get("audit", {}).get("drop")]
 
-    # Sort kept: ✓ Open first, then ⚠ Unverified
-    status_order = {"✓ Open": 0, "⚠ Unverified": 1, "✗ Closed": 2}
-    kept.sort(key=lambda j: status_order.get(j.get("audit", {}).get("status", ""), 9))
+    # Sort: ✓ Open (high conf) → ✓ Open (medium) → ⚠ Unverified
+    order = {"✓ Open": 0, "⚠ Unverified": 1, "✗ Closed": 2}
+    conf_order = {"high": 0, "medium": 1, "low": 2}
+    kept.sort(key=lambda j: (
+        order.get(j.get("audit", {}).get("status", ""), 9),
+        conf_order.get(j.get("audit", {}).get("confidence", ""), 9),
+    ))
 
-    # Log summary
-    open_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "✓ Open")
-    closed_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "✗ Closed")
-    unverified_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "⚠ Unverified")
-    print(f"[verifier] Verified {len(verified)} jobs: {open_count} open, {closed_count} closed, {unverified_count} unverified. Dropped {len(dropped)}.")
+    o = sum(1 for j in verified if j.get("audit", {}).get("status") == "✓ Open")
+    c = sum(1 for j in verified if j.get("audit", {}).get("status") == "✗ Closed")
+    u = sum(1 for j in verified if j.get("audit", {}).get("status") == "⚠ Unverified")
+    print(f"[verifier] {len(verified)} checked: {o} open, {c} closed, {u} unverified. Dropped {len(dropped)}.")
 
     return kept

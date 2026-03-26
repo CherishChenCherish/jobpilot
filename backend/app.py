@@ -125,17 +125,20 @@ def parse_resume_route():
 
 
 # ── POST /api/search — FULL PIPELINE ──────────────────────
+# Design: partial results > total failure. Every stage wraps errors.
+# Quota only increments on success.
 
 @limiter.limit("5 per minute")
 @app.route("/api/search", methods=["POST"])
 def search_route():
     data = request.get_json() or {}
+    errors = []  # Collect non-fatal errors for transparency
 
-    # a. Auth (simple google_id check for now)
+    # a. Auth
     google_id = data.get("google_id")
     user = _get_user_or_mock(google_id)
 
-    # b. Quota check
+    # b. Quota check (BEFORE any work)
     if isinstance(user, User) and user.plan == "free" and user.searches_used >= FREE_SEARCH_LIMIT:
         return jsonify({
             "error": "quota_exceeded",
@@ -143,7 +146,7 @@ def search_route():
             "searches_used": user.searches_used,
         }), 402
 
-    # c. Parse preferences
+    # c. Preferences
     profile = data.get("profile", {})
     prefs = data.get("prefs", {
         "directions": ["DS/ML", "Health Informatics"],
@@ -151,67 +154,126 @@ def search_route():
         "visa_needed": True,
     })
 
-    print(f"\n[search] Starting pipeline for {profile.get('name', 'Unknown')}")
-    print(f"[search] Directions: {prefs.get('directions')}, Type: {prefs.get('job_type')}")
+    print(f"\n[pipeline] Starting for {profile.get('name', 'Unknown')}")
+    print(f"[pipeline] Directions: {prefs.get('directions')}, Type: {prefs.get('job_type')}")
 
-    # d. Search
-    print("[search] Phase 1: Searching for jobs...")
-    jobs = run_search(profile, prefs)
-    total_found = len(jobs)
-    print(f"[search] Found {total_found} jobs")
+    # ── STAGE 1: Search ──────────────────────────────────
+    print("[pipeline] Stage 1: Searching...")
+    try:
+        all_jobs = run_search(profile, prefs)
+        total_found = len(all_jobs)
+        print(f"[pipeline] Found {total_found} jobs")
+    except Exception as e:
+        errors.append(f"Search failed: {str(e)[:100]}")
+        return jsonify({"jobs": [], "audit_summary": {"error": str(e)}, "errors": errors}), 200
 
-    # Limit to top 20 for verification (speed)
-    jobs = jobs[:20]
+    if total_found == 0:
+        return jsonify({
+            "jobs": [], "search_id": None,
+            "audit_summary": {"jobs_searched": 0, "jobs_verified": 0, "cl_generated": 0},
+            "errors": ["No jobs found matching your criteria. Try broadening your search directions."],
+        }), 200
 
-    # e. Verify
-    print(f"[search] Phase 2: Verifying top {len(jobs)} jobs...")
-    verified_jobs = verify_all_jobs(jobs, profile, prefs)
-    jobs_dropped = total_found - len(verified_jobs) if total_found > len(verified_jobs) else 0
+    # Top 20 for verification (balance speed vs coverage)
+    to_verify = all_jobs[:20]
 
-    # f. Generate cover letters for verified jobs (top 10)
-    print(f"[search] Phase 3: Generating cover letters for {min(10, len(verified_jobs))} jobs...")
-    for i, job in enumerate(verified_jobs[:10]):
+    # ── STAGE 2: Verify ──────────────────────────────────
+    print(f"[pipeline] Stage 2: Verifying {len(to_verify)} jobs...")
+    try:
+        verified = verify_all_jobs(to_verify, profile, prefs)
+    except Exception as e:
+        # Verification failed — return unverified results rather than nothing
+        errors.append(f"Verification partially failed: {str(e)[:100]}. Showing unverified results.")
+        verified = to_verify
+        for j in verified:
+            if "audit" not in j:
+                j["audit"] = {"status": "⚠ Unverified", "confidence": "low",
+                              "reason": "Verification unavailable", "drop": False}
+
+    open_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "✓ Open")
+    unverified_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "⚠ Unverified")
+    print(f"[pipeline] {len(verified)} kept ({open_count} open, {unverified_count} unverified)")
+
+    if not verified:
+        errors.append("All jobs were filtered out during verification (degree mismatch, visa, or closed).")
+
+    # ── STAGE 3: Generate CLs ────────────────────────────
+    cl_target = min(10, len(verified))
+    print(f"[pipeline] Stage 3: Generating CLs for top {cl_target}...")
+
+    cl_generated = 0
+    cl_errors = 0
+    for i, job in enumerate(verified[:cl_target]):
         company = job.get("company", "?")
-        print(f"  Generating CL {i+1}/{min(10, len(verified_jobs))}: {company}...")
-        cl = generate_cover_letter(job, profile)
-        job["cover_letter"] = cl
+        try:
+            cl = generate_cover_letter(job, profile)
+            job["cover_letter"] = cl
+            cl_generated += 1
+            score = cl.get("score", 0)
+            max_s = cl.get("max_score", 6)
+            print(f"  CL {i+1}/{cl_target}: {company} — {score}/{max_s}")
+        except Exception as e:
+            cl_errors += 1
+            job["cover_letter"] = {
+                "text": "", "word_count": 0, "score": 0, "max_score": 6,
+                "gates": {}, "needs_review": True, "error": str(e)[:100],
+            }
+            errors.append(f"CL generation failed for {company}: {str(e)[:60]}")
 
-    # g. Build audit summary
-    cl_scores = [j.get("cover_letter", {}).get("score", 0) for j in verified_jobs if j.get("cover_letter")]
+    if cl_errors > 0:
+        errors.append(f"{cl_errors} cover letter(s) failed to generate. Flagged for review.")
+
+    # ── Build audit summary ──────────────────────────────
+    cl_scores = [j["cover_letter"]["score"] for j in verified if j.get("cover_letter", {}).get("text")]
+    drop_reasons = {}
+    for j in all_jobs[:20]:
+        dr = j.get("audit", {}).get("drop_reason")
+        if dr:
+            key = dr.split("—")[0].strip() if "—" in dr else dr[:40]
+            drop_reasons[key] = drop_reasons.get(key, 0) + 1
+
     audit_summary = {
         "jobs_searched": total_found,
-        "jobs_verified": len(verified_jobs),
-        "jobs_dropped": jobs_dropped,
-        "drop_reasons": {},
-        "cl_generated": len(cl_scores),
+        "jobs_verified": len(verified),
+        "jobs_open": open_count,
+        "jobs_unverified": unverified_count,
+        "jobs_dropped": len(all_jobs[:20]) - len(verified),
+        "drop_reasons": drop_reasons,
+        "cl_generated": cl_generated,
         "cl_scores": cl_scores,
         "avg_cl_score": round(sum(cl_scores) / len(cl_scores), 1) if cl_scores else 0,
-        "needs_review_count": sum(1 for j in verified_jobs if j.get("cover_letter", {}).get("needs_review")),
+        "max_cl_score": max(cl_scores) if cl_scores else 0,
+        "needs_review_count": sum(1 for j in verified if j.get("cover_letter", {}).get("needs_review")),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    print(f"[search] Pipeline complete: {audit_summary['jobs_verified']} verified, {audit_summary['cl_generated']} CLs generated")
+    result_jobs = [_serialize_job(j) for j in verified[:10]]
 
-    # h. Save to DB
+    # ── Save to DB + increment quota (only on success) ───
     search_id = None
-    if isinstance(user, User):
-        search_record = Search(
-            user_id=user.id,
-            prefs_json=prefs,
-            results_json={"jobs": [_serialize_job(j) for j in verified_jobs[:10]]},
-            audit_json=audit_summary,
-        )
-        db.session.add(search_record)
+    if isinstance(user, User) and result_jobs:
+        try:
+            search_record = Search(
+                user_id=user.id,
+                prefs_json=prefs,
+                results_json={"jobs": result_jobs},
+                audit_json=audit_summary,
+            )
+            db.session.add(search_record)
+            user.searches_used += 1  # Only increment on success
+            db.session.commit()
+            search_id = search_record.id
+        except Exception as e:
+            errors.append(f"Failed to save results: {str(e)[:60]}")
+            db.session.rollback()
 
-        # i. Increment searches_used
-        user.searches_used += 1
-        db.session.commit()
-        search_id = search_record.id
+    print(f"[pipeline] Complete: {audit_summary['jobs_verified']} verified, {cl_generated} CLs, search_id={search_id}")
 
     return jsonify({
         "search_id": search_id,
-        "jobs": [_serialize_job(j) for j in verified_jobs[:10]],
+        "jobs": result_jobs,
         "audit_summary": audit_summary,
+        "errors": errors if errors else None,
     })
 
 

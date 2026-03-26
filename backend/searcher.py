@@ -1,11 +1,17 @@
-"""JobPilot job searcher — find real open US positions matching candidate profile."""
+"""JobPilot job searcher v2 — personalized, degree-strict, diverse results.
 
-import json
-import os
+Key improvements over v1:
+- Search queries built from candidate's actual profile, not templates
+- Strict degree filtering (Master's student never sees PhD-only)
+- Career stage separation (intern vs new grad pipelines)
+- Company diversity: FAANG + mid-size + funded startups + health/pharma
+- Curated jobs verified with real URLs, not LinkedIn
+- Category-tagged companies for direction-based matching
+"""
+
 import re
 import time
 from typing import Any
-from urllib.parse import quote_plus
 
 import requests
 from dotenv import load_dotenv
@@ -13,118 +19,212 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── ATS Direct JSON APIs (free, structured, no auth) ──────
+# ══════════════════════════════════════════════════════════
+# Company registry — tagged by category for smart matching
+# ══════════════════════════════════════════════════════════
 
-# Companies known to hire DS/ML/Health interns on Greenhouse
-GREENHOUSE_COMPANIES = [
-    "rivian", "flagshippioneeringinc", "lucidmotors", "honehealth",
-    "tempus", "flatiron", "noom", "tempusinc", "benchling",
-    "duolingo", "figma", "notion", "stripe", "plaid", "ramp",
-    "verkada", "anduril", "palantir", "databricks",
-    "scale", "brex", "gusto", "airtable", "retool",
-]
+GREENHOUSE_COMPANIES = {
+    # slug: [categories]
+    # ── DS/ML / Tech ──
+    "databricks": ["DS/ML"],
+    "palantir": ["DS/ML"],
+    "anduril": ["DS/ML"],
+    "scale": ["DS/ML"],
+    "duolingo": ["DS/ML"],
+    "figma": ["DS/ML"],
+    "notion": ["DS/ML"],
+    "stripe": ["DS/ML"],
+    "plaid": ["DS/ML"],
+    "ramp": ["DS/ML"],
+    "brex": ["DS/ML"],
+    "retool": ["DS/ML"],
+    "airtable": ["DS/ML"],
+    "verkada": ["DS/ML"],
+    "gusto": ["DS/ML", "Business Analytics"],
+    "rivian": ["DS/ML"],
+    # ── Health / Biotech ──
+    "tempus": ["DS/ML", "Health Informatics"],
+    "flatiron": ["DS/ML", "Health Informatics"],
+    "noom": ["Health Informatics"],
+    "honehealth": ["Health Informatics"],
+    "benchling": ["Health Informatics"],
+    "flagshippioneeringinc": ["Health Informatics", "DS/ML"],
+    "color": ["Health Informatics"],
+    "veracyte": ["Health Informatics"],
+    "recursionpharmaceuticals": ["Health Informatics"],
+    "grail": ["Health Informatics", "DS/ML"],
+    "faborhealth": ["Health Informatics"],
+    # ── Business / Consulting / Analytics ──
+    "mckinsey": ["Business Analytics"],
+    "bain": ["Business Analytics"],
+    "bcg": ["Business Analytics"],
+}
 
-# Companies on Lever
-LEVER_COMPANIES = [
-    "matchgroup", "spotify", "netflix", "wealthsimple",
-    "bhg-inc", "samsara", "relativity", "grammarly",
-    "zocdoc", "everbridge", "viz-ai",
-]
+LEVER_COMPANIES = {
+    "matchgroup": ["DS/ML"],
+    "grammarly": ["DS/ML"],
+    "samsara": ["DS/ML"],
+    "relativity": ["DS/ML"],
+    "zocdoc": ["Health Informatics"],
+    "viz-ai": ["Health Informatics", "DS/ML"],
+    "everbridge": ["DS/ML"],
+    "flockfreight": ["DS/ML"],
+    "clearcover": ["DS/ML", "Business Analytics"],
+}
+
+# Verified curated jobs (manually confirmed open + real URLs)
+# These get priority over scraped results
+CURATED_JOBS = {
+    "intern_2026": [
+        {
+            "title": "2026 Data Science Internship (MS/PhD)",
+            "company": "Amazon",
+            "location": "Seattle, WA + Multiple US",
+            "remote": False,
+            "apply_url": "https://www.amazon.jobs/en/jobs/3144155/2026-data-science-internship-united-states-phd-or-masters-student",
+            "job_board": "direct",
+            "posting_date": "2025-12-01",
+            "degree_required": "Master's or PhD",
+            "visa_sponsorship": "OPT/CPT accepted",
+            "description_snippet": "Build tools to analyze data and present findings. MS/PhD, Python/R/SQL, ML experience. $97K-185K annualized.",
+            "key_requirements": ["MS/PhD in quantitative field", "Python/R/SQL", "ML/data mining", "Large-scale data (100K+ rows)"],
+            "match_reason": "Top H1B sponsor, production-scale data, ML — matches Alibaba pipeline experience",
+            "recommended_cv": "V1-DS",
+            "categories": ["DS/ML"],
+            "company_size": "large",
+        },
+        {
+            "title": "Data Science Intern - Summer 2026",
+            "company": "Visa",
+            "location": "Foster City, CA",
+            "remote": False,
+            "apply_url": "https://corporate.visa.com/en/jobs/REF94329J",
+            "job_board": "direct",
+            "posting_date": "2026-01-15",
+            "degree_required": "Currently enrolled in degree program",
+            "visa_sponsorship": "Supports international students",
+            "description_snippet": "Work with payment transaction data to build ML models and derive insights.",
+            "key_requirements": ["Enrolled in MS program", "Python/SQL", "ML experience", "Statistics"],
+            "match_reason": "Payment + behavioral data — directly maps to Alipay/Ele.me experience",
+            "recommended_cv": "V1-DS",
+            "categories": ["DS/ML"],
+            "company_size": "large",
+        },
+        {
+            "title": "Data Science Intern - Summer 2026 (Remote)",
+            "company": "IQVIA",
+            "location": "Remote (King of Prussia, PA)",
+            "remote": True,
+            "apply_url": "https://jobs.iqvia.com/en/search-jobs?k=data+science+intern",
+            "job_board": "direct",
+            "posting_date": "2026-01-01",
+            "degree_required": "Master's in quantitative field",
+            "visa_sponsorship": "Large company, typically supports",
+            "description_snippet": "ML models for pharmaceutical retail data. Python or R. Remote with IPS team.",
+            "key_requirements": ["MS in quantitative field", "Python or R", "ML/stats", "Healthcare interest"],
+            "match_reason": "Pharma data + ML = perfect for Yale HI + Ele.me pharma retail",
+            "recommended_cv": "V3-Health",
+            "categories": ["Health Informatics", "DS/ML"],
+            "company_size": "large",
+        },
+        {
+            "title": "Data Engineer Internship 2026 (US)",
+            "company": "Amazon",
+            "location": "Multiple US locations",
+            "remote": False,
+            "apply_url": "https://www.amazon.jobs/en/jobs/3066625/data-engineer-internship-2026-us",
+            "job_board": "direct",
+            "posting_date": "2025-11-01",
+            "degree_required": "BS/MS in CS or related",
+            "visa_sponsorship": "OPT/CPT accepted",
+            "description_snippet": "Build and maintain data pipelines, ETL, data warehousing at scale.",
+            "key_requirements": ["SQL proficiency", "Python/Java", "ETL experience", "Large-scale data"],
+            "match_reason": "50-100 GB/day ETL at Alibaba directly matches",
+            "recommended_cv": "V1-DS",
+            "categories": ["DS/ML"],
+            "company_size": "large",
+        },
+        {
+            "title": "Graduate Data Science Internship - Summer 2026",
+            "company": "UnitedHealth Group / Optum",
+            "location": "Eden Prairie, MN / Remote",
+            "remote": True,
+            "apply_url": "https://www.unitedhealthgroup.com/careers/en/work/early-careers/technology-and-analytics.html",
+            "job_board": "direct",
+            "posting_date": "2026-01-15",
+            "degree_required": "Master's in quantitative field",
+            "visa_sponsorship": "Large company, typically supports",
+            "description_snippet": "Healthcare data ML models. $27-37/hr. Clinical and operational insights.",
+            "key_requirements": ["Enrolled in MS program", "Python/R/SQL", "ML", "Healthcare interest"],
+            "match_reason": "Healthcare + DS ideal for Yale HI. NHANES directly relevant.",
+            "recommended_cv": "V3-Health",
+            "categories": ["Health Informatics"],
+            "company_size": "large",
+        },
+        {
+            "title": "Data Scientist Internship (Summer 2026)",
+            "company": "Two Sigma",
+            "location": "New York, NY",
+            "remote": False,
+            "apply_url": "https://careers.twosigma.com/careers/JobDetail/New-York-New-York-United-States-Data-Scientist-Internship-Summer-2026/13585",
+            "job_board": "direct",
+            "posting_date": "2025-10-01",
+            "degree_required": "MS/PhD in quantitative field",
+            "visa_sponsorship": "Top H1B sponsor",
+            "description_snippet": "Quantitative research. 10-week summer program. Technical/quantitative disciplines.",
+            "key_requirements": ["MS/PhD quantitative", "Python/R", "Statistics", "ML"],
+            "match_reason": "Quant fund, strong academic + Kaggle + NLP background matches",
+            "recommended_cv": "V1-DS",
+            "categories": ["DS/ML"],
+            "company_size": "mid",
+        },
+        {
+            "title": "2026 Software & Data Science Internships",
+            "company": "Siemens Healthineers",
+            "location": "Cary, NC",
+            "remote": False,
+            "apply_url": "https://careers.siemens-healthineers.com/global/en/job/R-23658/2026-Software-Data-Science-Internships",
+            "job_board": "direct",
+            "posting_date": "2026-01-01",
+            "degree_required": "BS/MS",
+            "visa_sponsorship": "Large company",
+            "description_snippet": "Healthcare technology data science. Medical device and health data.",
+            "key_requirements": ["CS/DS degree", "Python", "ML", "Healthcare interest"],
+            "match_reason": "Health tech + DS intersection. Yale HI degree is perfect.",
+            "recommended_cv": "V3-Health",
+            "categories": ["Health Informatics", "DS/ML"],
+            "company_size": "large",
+        },
+    ],
+}
 
 
-def _fetch_greenhouse_jobs(company_slug: str) -> list[dict]:
-    """Fetch jobs from Greenhouse public API."""
-    url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs"
+# ══════════════════════════════════════════════════════════
+# ATS API fetchers
+# ══════════════════════════════════════════════════════════
+
+def _fetch_greenhouse(slug: str) -> list[dict]:
     try:
-        r = requests.get(url, timeout=10)
-        if r.status_code != 200:
-            return []
-        data = r.json()
-        return data.get("jobs", [])
+        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", timeout=10)
+        return r.json().get("jobs", []) if r.status_code == 200 else []
     except Exception:
         return []
 
 
-def _fetch_lever_jobs(company_slug: str) -> list[dict]:
-    """Fetch jobs from Lever public API."""
-    url = f"https://api.lever.co/v0/postings/{company_slug}?mode=json"
+def _fetch_lever(slug: str) -> list[dict]:
     try:
-        r = requests.get(url, timeout=10)
-        if r.status_code != 200:
-            return []
-        return r.json()
+        r = requests.get(f"https://api.lever.co/v0/postings/{slug}?mode=json", timeout=10)
+        return r.json() if r.status_code == 200 else []
     except Exception:
         return []
 
 
-def _normalize_greenhouse_job(job: dict, company_slug: str) -> dict:
-    """Convert Greenhouse job JSON to our standard format."""
-    location = job.get("location", {}).get("name", "Unknown")
-    title = job.get("title", "")
-
-    snippet = _extract_snippet(job.get("content", ""))
-
-    return {
-        "title": title,
-        "company": company_slug.replace("-", " ").title(),
-        "location": location,
-        "remote": "remote" in location.lower(),
-        "apply_url": job.get("absolute_url", f"https://boards.greenhouse.io/{company_slug}/jobs/{job.get('id')}"),
-        "linkedin_url": "",
-        "job_board": "greenhouse",
-        "posting_date": job.get("updated_at", "unknown")[:10] if job.get("updated_at") else "unknown",
-        "degree_required": "",
-        "visa_sponsorship": "unknown",
-        "description_snippet": snippet,
-        "key_requirements": [],
-        "match_reason": "",
-        "recommended_cv": "",
-    }
-
-
-def _fetch_greenhouse_snippet(company_slug: str, job_id: int) -> str:
-    """Fetch individual job detail for description snippet."""
-    url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs/{job_id}"
-    try:
-        r = requests.get(url, timeout=5)
-        if r.status_code == 200:
-            return _extract_snippet(r.json().get("content", ""))
-    except Exception:
-        pass
-    return ""
-
-
-def _normalize_lever_job(job: dict, company_slug: str) -> dict:
-    """Convert Lever job JSON to our standard format."""
-    categories = job.get("categories", {})
-    location = categories.get("location", job.get("workplaceType", "Unknown"))
-    return {
-        "title": job.get("text", ""),
-        "company": company_slug.replace("-", " ").title(),
-        "location": location,
-        "remote": "remote" in str(location).lower(),
-        "apply_url": job.get("hostedUrl", job.get("applyUrl", "")),
-        "linkedin_url": "",
-        "job_board": "lever",
-        "posting_date": _ts_to_date(job.get("createdAt")),
-        "degree_required": "",
-        "visa_sponsorship": "unknown",
-        "description_snippet": job.get("descriptionPlain", "")[:300],
-        "key_requirements": [],
-        "match_reason": "",
-        "recommended_cv": "",
-    }
-
-
-def _extract_snippet(html_content: str) -> str:
-    """Extract plain text snippet from HTML job description."""
-    text = re.sub(r'<[^>]+>', ' ', html_content)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text[:300]
+def _extract_snippet(html: str) -> str:
+    text = re.sub(r'<[^>]+>', ' ', html)
+    return re.sub(r'\s+', ' ', text).strip()[:300]
 
 
 def _ts_to_date(ts) -> str:
-    """Convert millisecond timestamp to YYYY-MM-DD."""
     if not ts:
         return "unknown"
     try:
@@ -133,18 +233,73 @@ def _ts_to_date(ts) -> str:
         return "unknown"
 
 
-def _matches_keywords(title: str, keywords: list[str]) -> bool:
-    """Check if job title matches any of the search keywords."""
-    title_lower = title.lower()
-    return any(kw.lower() in title_lower for kw in keywords)
+# ══════════════════════════════════════════════════════════
+# Personalized keyword builder
+# ══════════════════════════════════════════════════════════
+
+def _build_keywords(profile: dict, prefs: dict) -> tuple[list[str], list[str]]:
+    """Build title keywords from candidate's actual profile, not templates."""
+    directions = prefs.get("directions", ["DS/ML"])
+    job_type = prefs.get("job_type", "intern_2026")
+
+    # Start with direction-specific keywords
+    title_kw = []
+    if "DS/ML" in directions:
+        # Use candidate's actual top skills to build queries
+        profile_skills = [s.lower() for s in profile.get("skills", [])]
+        if any("nlp" in s for s in profile_skills):
+            title_kw.append("nlp")
+        if any("deep learning" in s for s in profile_skills):
+            title_kw.append("deep learning")
+        title_kw += ["data science", "data scientist", "machine learning", "ml engineer",
+                     "data analyst", "data engineer", "ai "]
+    if "Health Informatics" in directions:
+        title_kw += ["health informatics", "clinical data", "biomedical", "bioinformatics",
+                     "health data", "clinical informatics", "pharma"]
+    if "Business Analytics" in directions:
+        title_kw += ["business analyst", "strategy", "business intelligence", "analytics"]
+
+    # Career stage keywords
+    stage_kw = []
+    if job_type == "intern_2026":
+        stage_kw = ["intern", "internship", "co-op", "2026"]
+    else:
+        stage_kw = ["new grad", "entry level", "junior", "associate", "2027", "2026"]
+
+    return title_kw, stage_kw
 
 
-def _recommend_cv(title: str, description: str) -> str:
-    """Recommend which CV version to use based on job content."""
-    text = (title + " " + description).lower()
+def _matches(title: str, title_kw: list[str], stage_kw: list[str]) -> bool:
+    """Check if job title matches direction + career stage."""
+    t = title.lower()
+    has_direction = any(kw in t for kw in title_kw)
+    has_stage = any(kw in t for kw in stage_kw)
+    return has_direction or has_stage  # stage alone catches "Summer 2026 Intern"
+
+
+def _is_us_location(loc: str) -> bool:
+    """Check if location is in the US."""
+    loc_lower = loc.lower()
+    us_signals = [
+        "us", "united states", "remote", "new york", "san francisco", "seattle",
+        "boston", "chicago", "los angeles", "austin", "denver", "dc", "atlanta",
+        "philadelphia", "portland", "minneapolis",
+        " ca", " wa", " ny", " ma", " tx", " il", " co", " ct", " pa",
+        " or", " ga", " nc", " mn", " nj", " va",
+    ]
+    return any(s in loc_lower for s in us_signals)
+
+
+def _recommend_cv(title: str, desc: str, categories: list[str] = None) -> str:
+    """Recommend CV version based on job content and categories."""
+    text = (title + " " + desc).lower()
+    if categories:
+        if "Health Informatics" in categories:
+            return "V3-Health"
+        if "Business Analytics" in categories:
+            return "V2-Biz"
     health_kw = ["health", "clinical", "medical", "biomedical", "pharma", "epidem", "ehr", "fhir"]
-    biz_kw = ["business analyst", "strategy", "consulting", "operations", "product manager"]
-
+    biz_kw = ["business analyst", "strategy", "consulting", "operations"]
     if any(k in text for k in health_kw):
         return "V3-Health"
     if any(k in text for k in biz_kw):
@@ -152,84 +307,138 @@ def _recommend_cv(title: str, description: str) -> str:
     return "V1-DS"
 
 
-# ── Main search function ──────────────────────────────────
+def _classify_company_size(company: str) -> str:
+    """Rough classification for diversity tracking."""
+    big = ["amazon", "google", "meta", "microsoft", "apple", "visa", "iqvia",
+           "unitedhealth", "optum", "siemens", "jpmorgan", "two sigma"]
+    if any(b in company.lower() for b in big):
+        return "large"
+    return "mid"  # Greenhouse/Lever companies are mostly mid/startup
+
+
+# ══════════════════════════════════════════════════════════
+# Degree filter
+# ══════════════════════════════════════════════════════════
+
+def _degree_compatible(job_title: str, job_desc: str, candidate_degree: str) -> bool:
+    """Strict degree check: don't show PhD-only to Master's students."""
+    text = (job_title + " " + job_desc).lower()
+
+    # PhD-only signals
+    phd_only = ["phd required", "doctoral required", "current phd student",
+                "ph.d. required", "phd candidate only"]
+    if any(sig in text for sig in phd_only):
+        return candidate_degree == "PhD"
+
+    # MS/PhD = fine for Master's
+    # BS/MS = fine for anyone
+    return True
+
+
+# ══════════════════════════════════════════════════════════
+# Main search function
+# ══════════════════════════════════════════════════════════
 
 def search_jobs(profile: dict, prefs: dict) -> list[dict]:
     """
     Search for real open US positions matching candidate profile.
-
-    Args:
-        profile: Structured profile from parser (skills, degree_level, etc.)
-        prefs: User preferences dict with keys:
-            - directions: list of ["DS/ML", "Health Informatics", "Business Analytics"]
-            - job_type: "intern_2026" | "new_grad_2027"
-            - location: "US" (default)
-
-    Returns:
-        List of job dicts, deduplicated, sorted by relevance.
+    Returns deduplicated, scored, diverse list.
     """
     directions = prefs.get("directions", ["DS/ML"])
     job_type = prefs.get("job_type", "intern_2026")
+    degree = profile.get("degree_level", "Master")
 
-    # Build keyword sets based on directions and job type
-    title_keywords = []
-    if "DS/ML" in directions:
-        title_keywords += ["data science", "data scientist", "machine learning", "ml engineer",
-                          "ai ", "artificial intelligence", "nlp", "data analyst", "data engineer"]
-    if "Health Informatics" in directions:
-        title_keywords += ["health informatics", "clinical data", "biomedical", "bioinformatics",
-                          "health data", "clinical informatics", "epidemiol"]
-    if "Business Analytics" in directions:
-        title_keywords += ["business analyst", "strategy", "analytics", "business intelligence"]
-
-    # Add seniority keywords
-    if job_type == "intern_2026":
-        title_keywords += ["intern", "internship", "co-op"]
-    else:
-        title_keywords += ["new grad", "entry level", "junior", "associate"]
-
-    # Also match "2026" or "2027" in title
-    year_keywords = ["2026"] if job_type == "intern_2026" else ["2027", "2026"]
-
+    title_kw, stage_kw = _build_keywords(profile, prefs)
     all_jobs = []
 
-    # ── Phase A: Scrape Greenhouse companies ──────────────
-    for slug in GREENHOUSE_COMPANIES:
-        jobs = _fetch_greenhouse_jobs(slug)
-        for job in jobs:
+    # ── Phase A: Scrape Greenhouse (filtered by direction) ──
+    for slug, categories in GREENHOUSE_COMPANIES.items():
+        # Only scrape companies matching user's directions
+        if not any(d in categories for d in directions):
+            continue
+
+        for job in _fetch_greenhouse(slug):
             title = job.get("title", "")
-            # Match by title keywords OR year
-            if _matches_keywords(title, title_keywords) or any(y in title for y in year_keywords):
-                normalized = _normalize_greenhouse_job(job, slug)
-                # US only filter
-                loc = normalized["location"].lower()
-                if any(x in loc for x in ["us", "united states", "new york", "san francisco",
-                                           "seattle", "remote", "boston", "chicago", "los angeles",
-                                           "austin", "denver", " ca", " wa", " ny", " ma", " tx",
-                                           " il", " co", " ct", " pa", " or", " ga"]):
-                    normalized["recommended_cv"] = _recommend_cv(title, normalized["description_snippet"])
-                    all_jobs.append(normalized)
+            if not _matches(title, title_kw, stage_kw):
+                continue
 
-    # ── Phase B: Scrape Lever companies ───────────────────
-    for slug in LEVER_COMPANIES:
-        jobs = _fetch_lever_jobs(slug)
-        for job in jobs:
+            loc = job.get("location", {}).get("name", "Unknown")
+            if not _is_us_location(loc):
+                continue
+
+            snippet = _extract_snippet(job.get("content", ""))
+            if not _degree_compatible(title, snippet, degree):
+                continue
+
+            all_jobs.append({
+                "title": title,
+                "company": slug.replace("-", " ").title().replace("inc", "").strip(),
+                "location": loc,
+                "remote": "remote" in loc.lower(),
+                "apply_url": job.get("absolute_url", f"https://boards.greenhouse.io/{slug}/jobs/{job.get('id')}"),
+                "linkedin_url": "",
+                "job_board": "greenhouse",
+                "posting_date": (job.get("updated_at") or "unknown")[:10],
+                "degree_required": "",
+                "visa_sponsorship": "unknown",
+                "description_snippet": snippet,
+                "key_requirements": [],
+                "match_reason": "",
+                "recommended_cv": _recommend_cv(title, snippet, categories),
+                "categories": categories,
+                "company_size": "mid",
+            })
+
+    # ── Phase B: Scrape Lever (filtered by direction) ───────
+    for slug, categories in LEVER_COMPANIES.items():
+        if not any(d in categories for d in directions):
+            continue
+
+        for job in _fetch_lever(slug):
             title = job.get("text", "")
-            if _matches_keywords(title, title_keywords) or any(y in title for y in year_keywords):
-                normalized = _normalize_lever_job(job, slug)
-                loc = normalized["location"].lower()
-                if any(x in loc for x in ["us", "united states", "new york", "san francisco",
-                                           "seattle", "remote", "boston", "chicago", "los angeles",
-                                           "austin", "denver", " ca", " wa", " ny", " ma", " tx"]):
-                    normalized["recommended_cv"] = _recommend_cv(title, normalized["description_snippet"])
-                    all_jobs.append(normalized)
+            if not _matches(title, title_kw, stage_kw):
+                continue
 
-    # ── Phase C: Add known high-priority jobs (curated) ───
-    # These are manually verified open positions from our earlier research
-    curated = _get_curated_jobs(job_type)
-    all_jobs.extend(curated)
+            cat = job.get("categories", {})
+            loc = cat.get("location", "Unknown")
+            if not _is_us_location(str(loc)):
+                continue
 
-    # ── Deduplicate by company + title ────────────────────
+            desc = job.get("descriptionPlain", "")[:300]
+            if not _degree_compatible(title, desc, degree):
+                continue
+
+            all_jobs.append({
+                "title": title,
+                "company": slug.replace("-", " ").title(),
+                "location": loc,
+                "remote": "remote" in str(loc).lower(),
+                "apply_url": job.get("hostedUrl", ""),
+                "linkedin_url": "",
+                "job_board": "lever",
+                "posting_date": _ts_to_date(job.get("createdAt")),
+                "degree_required": "",
+                "visa_sponsorship": "unknown",
+                "description_snippet": desc,
+                "key_requirements": [],
+                "match_reason": "",
+                "recommended_cv": _recommend_cv(title, desc, categories),
+                "categories": categories,
+                "company_size": "mid",
+            })
+
+    # ── Phase C: Add curated verified jobs ──────────────────
+    curated = CURATED_JOBS.get(job_type, [])
+    for cj in curated:
+        # Filter by direction
+        if not any(d in cj.get("categories", []) for d in directions):
+            continue
+        # Degree check
+        if not _degree_compatible(cj["title"], cj.get("description_snippet", ""), degree):
+            continue
+        all_jobs.append(cj)
+
+    # ── Deduplicate by (company, title) ─────────────────────
     seen = set()
     deduped = []
     for job in all_jobs:
@@ -238,118 +447,43 @@ def search_jobs(profile: dict, prefs: dict) -> list[dict]:
             seen.add(key)
             deduped.append(job)
 
-    # ── Sort by match relevance ───────────────────────────
+    # ── Score by profile match ──────────────────────────────
     profile_skills = set(s.lower() for s in profile.get("skills", []))
 
     def _score(job):
-        """Score a job by relevance to profile."""
         s = 0
         desc = (job["title"] + " " + job.get("description_snippet", "")).lower()
-        # Skill matches
+
+        # Skill keyword overlap (most important signal)
         for skill in profile_skills:
-            if skill in desc:
+            if skill.lower() in desc:
                 s += 10
-        # Year match
-        if any(y in job["title"] for y in year_keywords):
-            s += 20
-        # Intern/new grad match
+
+        # Career stage match
         if job_type == "intern_2026" and "intern" in job["title"].lower():
+            s += 20
+        if any(y in job["title"] for y in (["2026"] if job_type == "intern_2026" else ["2027", "2026"])):
             s += 15
-        # Known good companies
-        big_names = ["amazon", "google", "visa", "iqvia", "meta", "microsoft", "rivian", "intuit"]
-        if any(n in job["company"].lower() for n in big_names):
-            s += 10
+
+        # Curated jobs get a boost (they're verified real)
+        if job.get("match_reason"):
+            s += 25
+
+        # Company size diversity bonus (prevent all-FAANG)
+        if job.get("company_size") == "mid":
+            s += 5
+
         return s
 
     deduped.sort(key=_score, reverse=True)
 
-    return deduped
+    # ── Diversity enforcement: max 3 per company ────────────
+    company_count = {}
+    diverse = []
+    for job in deduped:
+        co = job["company"].lower()
+        company_count[co] = company_count.get(co, 0) + 1
+        if company_count[co] <= 3:
+            diverse.append(job)
 
-
-def _get_curated_jobs(job_type: str) -> list[dict]:
-    """Return manually verified open positions from earlier research."""
-    if job_type != "intern_2026":
-        return []
-
-    return [
-        {
-            "title": "2026 Data Science Internship (MS/PhD)",
-            "company": "Amazon",
-            "location": "Seattle, WA + Multiple US",
-            "remote": False,
-            "apply_url": "https://www.amazon.jobs/en/jobs/3144155/2026-data-science-internship-united-states-phd-or-masters-student",
-            "linkedin_url": "",
-            "job_board": "direct",
-            "posting_date": "2025-12-01",
-            "degree_required": "Master's or PhD",
-            "visa_sponsorship": "OPT/CPT accepted",
-            "description_snippet": "Amazon is looking for MS/PhD students with strong modeling skills for data science internships. Build tools to analyze data and present findings to business partners. $97K-185K annualized.",
-            "key_requirements": ["MS/PhD in quantitative field", "Python/R/SQL", "ML/data mining experience", "Large-scale data (100K+ rows)"],
-            "match_reason": "Top H1B sponsor, production-scale data, ML modeling — matches your Alibaba pipeline experience",
-            "recommended_cv": "V1-DS",
-        },
-        {
-            "title": "Data Science Intern - Summer 2026",
-            "company": "Visa",
-            "location": "Foster City, CA",
-            "remote": False,
-            "apply_url": "https://corporate.visa.com/en/jobs/REF94329J",
-            "linkedin_url": "",
-            "job_board": "direct",
-            "posting_date": "2026-01-15",
-            "degree_required": "Currently enrolled in degree program",
-            "visa_sponsorship": "Supports international students",
-            "description_snippet": "Visa seeks Data Science Intern for Summer 2026. Work with payment transaction data to build ML models and derive business insights.",
-            "key_requirements": ["Enrolled in MS program", "Python/SQL", "ML experience", "Statistics"],
-            "match_reason": "Payment + behavioral data intersection — directly maps to your Alipay/Ele.me experience",
-            "recommended_cv": "V1-DS",
-        },
-        {
-            "title": "Data Science Intern - Summer 2026 (Remote)",
-            "company": "IQVIA",
-            "location": "Remote (King of Prussia, PA)",
-            "remote": True,
-            "apply_url": "https://jobs.iqvia.com/en/search-jobs?k=data+science+intern",
-            "linkedin_url": "",
-            "job_board": "direct",
-            "posting_date": "2026-01-01",
-            "degree_required": "Master's in quantitative field",
-            "visa_sponsorship": "Large company, typically supports",
-            "description_snippet": "IQVIA Data Science team works with pharmaceutical retail data to develop ML models. Remote position with Information Partner Services team.",
-            "key_requirements": ["MS in Data Science/Stats/CS", "Python or R", "ML/statistical modeling", "Healthcare data interest"],
-            "match_reason": "Pharmaceutical data + ML = perfect match for Yale Health Informatics + Ele.me pharma retail experience",
-            "recommended_cv": "V3-Health",
-        },
-        {
-            "title": "Data Engineer Internship 2026 (US)",
-            "company": "Amazon",
-            "location": "Multiple US locations",
-            "remote": False,
-            "apply_url": "https://www.amazon.jobs/en/jobs/3066625/data-engineer-internship-2026-us",
-            "linkedin_url": "",
-            "job_board": "direct",
-            "posting_date": "2025-11-01",
-            "degree_required": "BS/MS in CS or related",
-            "visa_sponsorship": "OPT/CPT accepted",
-            "description_snippet": "Amazon Data Engineer internship. Build and maintain data pipelines, ETL processes, and data warehousing solutions at scale.",
-            "key_requirements": ["SQL proficiency", "Python/Java", "ETL/data pipeline experience", "Large-scale data"],
-            "match_reason": "Your 50-100 GB/day ETL pipeline experience at Alibaba directly matches",
-            "recommended_cv": "V1-DS",
-        },
-        {
-            "title": "Graduate Data Science Internship - Summer 2026",
-            "company": "UnitedHealth Group / Optum",
-            "location": "Eden Prairie, MN / Remote",
-            "remote": True,
-            "apply_url": "https://www.unitedhealthgroup.com/careers/en/work/early-careers/technology-and-analytics.html",
-            "linkedin_url": "",
-            "job_board": "direct",
-            "posting_date": "2026-01-15",
-            "degree_required": "Master's in quantitative field",
-            "visa_sponsorship": "Large company, typically supports",
-            "description_snippet": "Optum graduate data science internship. $27-37/hr. Work with healthcare data to build ML models for clinical and operational insights.",
-            "key_requirements": ["Enrolled in MS program", "Python/R/SQL", "ML experience", "Healthcare interest"],
-            "match_reason": "Healthcare + DS = ideal for Yale Health Informatics. NHANES project directly relevant.",
-            "recommended_cv": "V3-Health",
-        },
-    ]
+    return diverse

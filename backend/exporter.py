@@ -188,36 +188,71 @@ def _build_tracker_sheet(wb, jobs):
 def _build_audit_sheet(wb, jobs):
     ws = wb.create_sheet("Audit Log")
 
-    headers = ["#", "Company", "Title", "URL Checked", "Final URL",
-               "HTTP", "Status", "Confidence", "Reason",
-               "Age (days)", "Degree", "Visa", "Drop?", "Drop Reason", "Manual Check"]
-    _write_header(ws, headers)
+    # Audit log header with explanation
+    ws.merge_cells("A1:P1")
+    intro = ws.cell(row=1, column=1,
+        value="VERIFICATION AUDIT LOG — This sheet shows exactly how each job was verified. "
+              "✓ Open = confirmed via ATS API or apply button found. "
+              "⚠ Unverified = could not confirm (check manually). "
+              "✗ Closed = definitive closed signal found.")
+    intro.font = Font(size=9, italic=True, color="666666", name="Calibri")
+    intro.alignment = Alignment(wrap_text=True)
+    ws.row_dimensions[1].height = 35
+
+    headers = ["#", "Company", "Title", "Verification Method", "URL Checked",
+               "Final URL", "HTTP", "Status", "Confidence", "Reasoning",
+               "Posted (days ago)", "Ghost Risk", "Degree Match", "Visa Status",
+               "Dropped?", "Drop Reason"]
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=2, column=col, value=h)
+        c.fill = HEADER_FILL
+        c.font = HEADER_FONT
+        c.alignment = CENTER
+        c.border = THIN_BORDER
+    ws.row_dimensions[2].height = 28
+    ws.freeze_panes = "A3"
 
     for i, job in enumerate(jobs, 1):
-        r = i + 1
+        r = i + 2  # Row 1 = intro, Row 2 = headers, data starts at 3
         a = job.get("audit", {})
+        board = job.get("job_board", "direct")
+
+        # Determine verification method label
+        method = {
+            "greenhouse": "Greenhouse API (definitive)",
+            "lever": "Lever API (definitive)",
+        }.get(board, f"HTML page analysis ({board})")
 
         _style_cell(ws, r, 1, i)
         _style_cell(ws, r, 2, job.get("company", ""))
         _style_cell(ws, r, 3, job.get("title", ""))
-        _style_cell(ws, r, 4, a.get("url_checked", ""))
-        _style_cell(ws, r, 5, a.get("final_url", ""))
-        _style_cell(ws, r, 6, a.get("http_status", ""))
+        _style_cell(ws, r, 4, method)
+        _style_cell(ws, r, 5, a.get("url_checked", ""))
 
-        status = a.get("status", "")
-        sc = _style_cell(ws, r, 7, status)
+        final_url = a.get("final_url", "")
+        _style_cell(ws, r, 6, final_url if final_url != a.get("url_checked") else "same")
+        _style_cell(ws, r, 7, a.get("http_status", ""))
+
+        status = a.get("status", "⚠ Unverified")
+        sc = _style_cell(ws, r, 8, status)
         sc.fill = STATUS_FILLS.get(status, ROW_ODD)
+        sc.font = Font(size=10, bold=True, name="Calibri")
 
-        _style_cell(ws, r, 8, a.get("confidence", ""))
-        _style_cell(ws, r, 9, a.get("reason", ""), wrap=True)
-        _style_cell(ws, r, 10, a.get("posting_age_days", ""))
-        _style_cell(ws, r, 11, a.get("degree_match", ""))
-        _style_cell(ws, r, 12, a.get("visa", ""))
-        _style_cell(ws, r, 13, "YES" if a.get("drop") else "No")
-        _style_cell(ws, r, 14, a.get("drop_reason", ""), wrap=True)
-        _style_cell(ws, r, 15, "YES" if a.get("needs_manual_check") else "No")
+        _style_cell(ws, r, 9, a.get("confidence", ""))
+        _style_cell(ws, r, 10, a.get("reason", ""), wrap=True)
+        _style_cell(ws, r, 11, a.get("posting_age_days", ""))
 
-        ws.row_dimensions[r].height = 35
+        ghost = a.get("ghost_risk", "unknown")
+        gc = _style_cell(ws, r, 12, ghost)
+        if ghost == "high":
+            gc.fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
+
+        _style_cell(ws, r, 13, a.get("degree_match", ""))
+        _style_cell(ws, r, 14, a.get("visa", ""))
+        _style_cell(ws, r, 15, "YES" if a.get("drop") else "No")
+        _style_cell(ws, r, 16, a.get("drop_reason", ""), wrap=True)
+
+        ws.row_dimensions[r].height = 40
 
     _auto_width(ws)
 
