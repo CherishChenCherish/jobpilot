@@ -99,9 +99,8 @@ def me():
 
 # ── POST /api/parse ────────────────────────────────────────
 
-@limiter.limit("10 per minute")
-
 @app.route("/api/parse", methods=["POST"])
+@limiter.limit("10 per minute")
 def parse_resume_route():
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded. Send multipart/form-data with key 'file'"}), 400
@@ -128,8 +127,8 @@ def parse_resume_route():
 # Design: partial results > total failure. Every stage wraps errors.
 # Quota only increments on success.
 
-@limiter.limit("5 per minute")
 @app.route("/api/search", methods=["POST"])
+@limiter.limit("5 per minute")
 def search_route():
     data = request.get_json() or {}
     errors = []  # Collect non-fatal errors for transparency
