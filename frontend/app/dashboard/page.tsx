@@ -181,8 +181,15 @@ function DashboardInner() {
       try {
         data = JSON.parse(text);
       } catch {
-        // Handle invalid JSON (e.g. control characters in response)
-        data = JSON.parse(text.replace(/[\x00-\x1f\x7f]/g, ' '));
+        // Server returned HTML (timeout/502) instead of JSON
+        if (text.includes("<!doctype") || text.includes("<!DOCTYPE") || text.includes("<html")) {
+          setError("Search timed out. The server took too long. Please try again with fewer directions selected.");
+          setPhase("parsed");
+          return;
+        }
+        // Try cleaning control characters
+        try { data = JSON.parse(text.replace(/[\x00-\x1f\x7f]/g, ' ')); }
+        catch { setError("Invalid response from server. Please try again."); setPhase("parsed"); return; }
       }
       if (data.error === "quota_exceeded") {
         setError("Free plan limit reached. Upgrade to Pro for unlimited searches.");

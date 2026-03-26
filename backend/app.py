@@ -248,8 +248,8 @@ def search_route():
             "errors": ["No jobs found matching your criteria. Try broadening your search directions."],
         }), 200
 
-    # Top 20 for verification (balance speed vs coverage)
-    to_verify = all_jobs[:20]
+    # Top 10 for verification (Railway free tier has ~30s timeout)
+    to_verify = all_jobs[:10]
 
     # ── STAGE 2: Verify ──────────────────────────────────
     print(f"[pipeline] Stage 2: Verifying {len(to_verify)} jobs...")
