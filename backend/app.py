@@ -266,34 +266,12 @@ def search_route():
     if not verified:
         errors.append("All jobs were filtered out during verification (degree mismatch, visa, or closed).")
 
-    # ── STAGE 3: Generate CLs ────────────────────────────
-    cl_target = min(10, len(verified))
-    print(f"[pipeline] Stage 3: Generating CLs for top {cl_target}...")
-
-    cl_generated = 0
-    cl_errors = 0
-    for i, job in enumerate(verified[:cl_target]):
-        company = job.get("company", "?")
-        try:
-            cl = generate_cover_letter(job, profile)
-            job["cover_letter"] = cl
-            cl_generated += 1
-            score = cl.get("score", 0)
-            max_s = cl.get("max_score", 6)
-            print(f"  CL {i+1}/{cl_target}: {company} — {score}/{max_s}")
-        except Exception as e:
-            cl_errors += 1
-            job["cover_letter"] = {
-                "text": "", "word_count": 0, "score": 0, "max_score": 6,
-                "gates": {}, "needs_review": True, "error": str(e)[:100],
-            }
-            errors.append(f"CL generation failed for {company}: {str(e)[:60]}")
-
-    if cl_errors > 0:
-        errors.append(f"{cl_errors} cover letter(s) failed to generate. Flagged for review.")
+    # ── STAGE 3: Skip CLs — return jobs immediately ────
+    # CLs are generated separately via /api/generate-cls
+    print(f"[pipeline] Jobs ready. CLs will be generated on demand via /api/generate-cls")
 
     # ── Build audit summary ──────────────────────────────
-    cl_scores = [j["cover_letter"]["score"] for j in verified if j.get("cover_letter", {}).get("text")]
+    cl_scores = []
     drop_reasons = {}
     for j in all_jobs[:20]:
         dr = j.get("audit", {}).get("drop_reason")
@@ -308,11 +286,12 @@ def search_route():
         "jobs_unverified": unverified_count,
         "jobs_dropped": len(all_jobs[:20]) - len(verified),
         "drop_reasons": drop_reasons,
-        "cl_generated": cl_generated,
-        "cl_scores": cl_scores,
-        "avg_cl_score": round(sum(cl_scores) / len(cl_scores), 1) if cl_scores else 0,
-        "max_cl_score": max(cl_scores) if cl_scores else 0,
-        "needs_review_count": sum(1 for j in verified if j.get("cover_letter", {}).get("needs_review")),
+        "cl_generated": 0,
+        "cl_scores": [],
+        "avg_cl_score": 0,
+        "max_cl_score": 0,
+        "needs_review_count": 0,
+        "cl_status": "pending",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -336,12 +315,63 @@ def search_route():
             errors.append(f"Failed to save results: {str(e)[:60]}")
             db.session.rollback()
 
-    print(f"[pipeline] Complete: {audit_summary['jobs_verified']} verified, {cl_generated} CLs, search_id={search_id}")
+    print(f"[pipeline] Complete: {audit_summary['jobs_verified']} verified, CLs pending, search_id={search_id}")
 
     return jsonify({
         "search_id": search_id,
         "jobs": result_jobs,
         "audit_summary": audit_summary,
+        "errors": errors if errors else None,
+    })
+
+
+# ── POST /api/generate-cls — generate CLs for given jobs ──
+# Called AFTER /api/search returns jobs. This is the slow part.
+
+@app.route("/api/generate-cls", methods=["POST"])
+@limiter.limit("3 per minute")
+def generate_cls_route():
+    data = request.get_json() or {}
+    jobs = data.get("jobs", [])
+    profile = data.get("profile", {})
+
+    if not jobs:
+        return jsonify({"error": "No jobs provided"}), 400
+
+    cl_target = min(10, len(jobs))
+    results = []
+    errors = []
+
+    print(f"[cls] Generating {cl_target} cover letters...")
+    for i, job in enumerate(jobs[:cl_target]):
+        company = job.get("company", "?")
+        try:
+            cl = generate_cover_letter(job, profile)
+            results.append({
+                "index": i,
+                "company": company,
+                "cover_letter": cl,
+            })
+            print(f"  CL {i+1}/{cl_target}: {company} — {cl.get('score', 0)}/{cl.get('max_score', 6)}")
+        except Exception as e:
+            results.append({
+                "index": i,
+                "company": company,
+                "cover_letter": {
+                    "text": "", "word_count": 0, "score": 0, "max_score": 6,
+                    "gates": {}, "needs_review": True, "error": str(e)[:100],
+                    "tone": "unknown",
+                },
+            })
+            errors.append(f"CL failed for {company}: {str(e)[:60]}")
+
+    scores = [r["cover_letter"]["score"] for r in results if r["cover_letter"].get("text")]
+    print(f"[cls] Done: {len(scores)} generated, avg {sum(scores)/len(scores):.1f}" if scores else "[cls] Done: 0 generated")
+
+    return jsonify({
+        "cover_letters": results,
+        "cl_generated": len(scores),
+        "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
         "errors": errors if errors else None,
     })
 

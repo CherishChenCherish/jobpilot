@@ -49,6 +49,7 @@ type AuditSummary = {
   avg_cl_score: number;
   max_cl_score: number;
   drop_reasons: Record<string, number>;
+  cl_status?: string;
 };
 
 type SearchResult = {
@@ -145,7 +146,9 @@ function DashboardInner() {
     } catch { setError("Upload failed. Check your connection and try again."); setPhase("idle"); }
   }, []);
 
-  // ── Search ────────────────────────────────────────────
+  // ── Search (two-phase: jobs first, then CLs) ────────
+  const [clsLoading, setClsLoading] = useState(false);
+
   const handleSearch = useCallback(async () => {
     if (!profile) return;
     if (user?.plan === "free" && (user?.searches_used || 0) >= 3) {
@@ -156,17 +159,13 @@ function DashboardInner() {
     setPhase("searching");
     setProgressLog(["Searching Greenhouse, Lever, and company career pages..."]);
 
-    // Simulate progress while waiting for real response
     const timer1 = setTimeout(() => {
       setPhase("verifying");
       setProgressLog(prev => [...prev, "Verifying each posting is still accepting applications..."]);
     }, 3000);
-    const timer2 = setTimeout(() => {
-      setPhase("generating");
-      setProgressLog(prev => [...prev, "Writing personalized cover letters for verified positions..."]);
-    }, 12000);
 
     try {
+      // PHASE 1: Search + verify (fast, ~15s)
       const res = await fetch(`${API}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,23 +175,59 @@ function DashboardInner() {
         }),
       });
       clearTimeout(timer1);
-      clearTimeout(timer2);
       const data = await res.json();
       if (data.error === "quota_exceeded") {
         setError("Free plan limit reached. Upgrade to Pro for unlimited searches.");
         setPhase("parsed");
         return;
       }
+
+      // Show jobs immediately (no CLs yet)
       setResult(data);
       setPhase("done");
       if (user) setUser({ ...user, searches_used: (user.searches_used || 0) + 1 });
+
+      // PHASE 2: Generate CLs in background (slow, ~30-60s)
+      if (data.jobs?.length > 0) {
+        setClsLoading(true);
+        try {
+          const clRes = await fetch(`${API}/api/generate-cls`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobs: data.jobs, profile }),
+          });
+          const clData = await clRes.json();
+
+          // Merge CLs into existing jobs
+          if (clData.cover_letters) {
+            setResult(prev => {
+              if (!prev) return prev;
+              const updated = { ...prev, jobs: [...prev.jobs] };
+              for (const cl of clData.cover_letters) {
+                if (cl.index < updated.jobs.length) {
+                  updated.jobs[cl.index] = { ...updated.jobs[cl.index], cover_letter: cl.cover_letter };
+                }
+              }
+              updated.audit_summary = {
+                ...updated.audit_summary,
+                cl_generated: clData.cl_generated,
+                avg_cl_score: clData.avg_score,
+                cl_status: "done",
+              };
+              return updated;
+            });
+          }
+        } catch {
+          // CL generation failed — jobs still visible
+        }
+        setClsLoading(false);
+      }
     } catch {
       clearTimeout(timer1);
-      clearTimeout(timer2);
       setError("Search failed. Please try again.");
       setPhase("parsed");
     }
-  }, [profile, directions, jobType, visaNeeded, session, user]);
+  }, [profile, directions, jobType, degreeTarget, visaNeeded, session, user]);
 
   // ── Download ──────────────────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -567,8 +602,12 @@ function DashboardInner() {
                 </h2>
                 <p className="text-muted text-sm mt-1">
                   {result.audit_summary?.jobs_searched} searched &middot;
-                  {result.audit_summary?.jobs_verified} passed verification &middot;
-                  {result.audit_summary?.cl_generated} cover letters written
+                  {result.audit_summary?.jobs_verified} passed verification
+                  {clsLoading ? (
+                    <span className="ml-1" style={{ color: "#60A5FA" }}>&middot; Writing cover letters...</span>
+                  ) : result.audit_summary?.cl_generated ? (
+                    <span> &middot; {result.audit_summary.cl_generated} cover letters ready</span>
+                  ) : null}
                 </p>
                 {result.errors && result.errors.length > 0 && (
                   <p className="text-warn text-xs mt-1">! {result.errors[0]}</p>
@@ -711,7 +750,7 @@ function DashboardInner() {
 
                   {/* Actions */}
                   <div className="flex gap-2 mt-auto pt-2 border-t border-border/50">
-                    {job.cover_letter?.text && (
+                    {job.cover_letter?.text ? (
                       <>
                         <button onClick={() => setExpandedCL(expandedCL === idx ? null : idx)}
                           className="text-xs px-3 py-1.5 rounded bg-card border border-border text-muted hover:text-white hover:border-accent/50 transition">
@@ -724,7 +763,9 @@ function DashboardInner() {
                           {copied === idx ? "Copied \u2713" : "Copy CL"}
                         </button>
                       </>
-                    )}
+                    ) : clsLoading ? (
+                      <span className="text-xs px-3 py-1.5 text-muted step-active">Writing cover letter...</span>
+                    ) : null}
                     <a href={job.apply_url} target="_blank" rel="noopener noreferrer"
                       className="text-xs px-3 py-1.5 rounded bg-accent/90 text-white hover:bg-accent transition ml-auto">
                       Apply &rarr;
