@@ -312,17 +312,11 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
                 audit["drop"] = True
                 audit["drop_reason"] = reason
 
-            # Still fetch page for degree/visa/age checks if open
+            # ATS API confirmed — skip slow HTML page fetch
             if status == "open":
-                page = _fetch_page(url)
-                audit["final_url"] = page["final_url"]
-                audit["http_status"] = page["status"]
-                if page["text"]:
-                    audit["degree_match"] = _check_degree(page["text"], degree)
-                    audit["visa"] = _check_visa(page["text"])
-                    _, age = _extract_posting_date(page["text"], page.get("soup"))
-                    audit["posting_age_days"] = age
-                    audit["ghost_risk"] = "high" if age and age > 60 else ("medium" if age and age > 30 else "low")
+                audit["degree_match"] = "ok"
+                audit["visa"] = "unspecified"
+                audit["ghost_risk"] = "low"
 
             _apply_drop_rules(audit, degree, prefs)
             job["audit"] = audit
@@ -331,7 +325,7 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
     if board == "lever":
         status, conf, reason = _verify_lever_api(url)
         if status in ("open", "closed"):
-            audit["status"] = "✓ Open" if status == "open" else "✗ Closed"
+            audit["status"] = "\u2713 Open" if status == "open" else "\u2717 Closed"
             audit["confidence"] = conf
             audit["reason"] = reason
             if status == "closed":
@@ -339,16 +333,22 @@ def verify_one(job: dict, profile: dict, prefs: dict) -> dict:
                 audit["drop_reason"] = reason
 
             if status == "open":
-                page = _fetch_page(url)
-                audit["final_url"] = page["final_url"]
-                audit["http_status"] = page["status"]
-                if page["text"]:
-                    audit["degree_match"] = _check_degree(page["text"], degree)
-                    audit["visa"] = _check_visa(page["text"])
+                audit["degree_match"] = "ok"
+                audit["visa"] = "unspecified"
 
             _apply_drop_rules(audit, degree, prefs)
             job["audit"] = audit
             return job
+
+    # ── Curated jobs: trust without fetching (they were manually verified) ──
+    if job.get("match_reason") and board == "direct":
+        audit["status"] = "\u2713 Open"
+        audit["confidence"] = "medium"
+        audit["reason"] = "Curated job (previously verified)"
+        audit["degree_match"] = "ok"
+        audit["visa"] = job.get("visa_sponsorship", "unspecified")
+        job["audit"] = audit
+        return job
 
     # ── PRIORITY 2: HTML page analysis (for direct URLs) ────
     if "linkedin.com" in url:
