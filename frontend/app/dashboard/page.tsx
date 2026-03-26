@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { useOnboarding, OnboardingModal } from "@/components/onboarding";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5002";
+const API = process.env.NEXT_PUBLIC_API_URL || "https://jobpilot-v1.up.railway.app";
 
 type Audit = {
   status: string;
