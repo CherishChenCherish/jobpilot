@@ -26,7 +26,12 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB
 
-CORS(app, origins=[os.getenv("FRONTEND_URL", "http://localhost:3000")])
+CORS(app, origins=[
+    os.getenv("FRONTEND_URL", "http://localhost:3000"),
+    "http://localhost:3000",
+    "https://jobpilot-plum.vercel.app",
+    "https://jobpilot.vercel.app",
+], supports_credentials=True)
 db.init_app(app)
 
 # Rate limiting — prevent API abuse
