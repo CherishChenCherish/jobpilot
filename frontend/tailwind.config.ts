@@ -8,19 +8,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#080C14",
-        surface: "#111827",
-        card: "#1A2234",
+        page: "#060A13",
+        surface: "#0F1629",
+        raised: "#182036",
+        overlay: "#1E293B",
+        card: "#182036",      // alias for raised
+        border: "#1E293B",
+        "border-hover": "#334155",
         accent: "#3B82F6",
+        "accent-hover": "#2563EB",
         gold: "#F59E0B",
         open: "#22C55E",
         warn: "#F59E0B",
         closed: "#EF4444",
-        muted: "#94A3B8",
-        border: "#1E293B",
+        muted: "#A8B8CF",     // now higher contrast than before
       },
       fontFamily: {
-        serif: ['"DM Serif Display"', "serif"],
+        serif: ['"DM Serif Display"', "Georgia", "serif"],
         sans: ['"DM Sans"', "system-ui", "sans-serif"],
       },
     },

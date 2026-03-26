@@ -251,7 +251,7 @@ function DashboardInner() {
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8">
         {error && (
           <div className="mb-6 p-4 bg-closed/10 border border-closed/30 rounded-lg text-sm flex items-start gap-3">
-            <span className="text-closed shrink-0 mt-0.5">&#9888;</span>
+            <span className="text-closed shrink-0 mt-0.5">!</span>
             <div className="text-closed/90">{error}</div>
             <button onClick={() => setError(null)} className="text-closed/50 hover:text-closed ml-auto text-xs shrink-0">dismiss</button>
           </div>
@@ -268,7 +268,7 @@ function DashboardInner() {
 
               {phase === "uploading" && (
                 <div className="upload-zone rounded-xl p-12 text-center">
-                  <div className="text-2xl step-active">&#8635;</div>
+                  <div className="text-2xl step-active">...</div>
                   <p className="text-muted mt-2">Parsing your resume...</p>
                 </div>
               )}
@@ -281,7 +281,7 @@ function DashboardInner() {
                   onDragLeave={() => setDragover(false)}
                   onDrop={e => { e.preventDefault(); setDragover(false); const f = e.dataTransfer.files[0]; if (f) handleUpload(f); }}
                 >
-                  <div className="text-4xl mb-3 opacity-50">&#128196;</div>
+                  <div className="text-4xl mb-3 opacity-50"></div>
                   <p className="text-muted mb-1">Drop your PDF or DOCX here</p>
                   <p className="text-xs text-muted/60">or click to browse &middot; max 10MB</p>
                   <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" className="hidden"
@@ -383,7 +383,7 @@ function DashboardInner() {
                     {/* Re-upload */}
                     <button onClick={() => { setProfile(null); setPhase("idle"); }}
                       className="text-xs text-muted hover:text-accent transition">
-                      &#8634; Upload a different resume
+                      ← Upload a different resume
                     </button>
                   </div>
                 </div>
@@ -487,40 +487,72 @@ function DashboardInner() {
           </div>
         )}
 
-        {/* ═══ PROCESSING (Moment 2: real-time progress) ═══ */}
+        {/* ═══ PROCESSING — animated progress bar ═══ */}
         {isProcessing && phase !== "uploading" && (
-          <div className="max-w-2xl mx-auto py-12 md:py-16">
-            <h2 className="text-2xl font-serif mb-8 text-center">Finding your best matches...</h2>
+          <div className="max-w-lg mx-auto py-20 md:py-28 px-4">
+            <h2 className="text-2xl md:text-3xl font-serif mb-10 text-center" style={{ color: "#F0F4F8" }}>
+              Finding your best matches
+            </h2>
 
-            {/* Progress steps */}
-            <div className="flex justify-between mb-10 px-4">
-              {[
-                { k: "searching", l: "Searching", icon: "&#128269;" },
-                { k: "verifying", l: "Verifying", icon: "&#9989;" },
-                { k: "generating", l: "Writing CLs", icon: "&#9997;" },
-              ].map((s, i) => {
-                const phases: string[] = ["searching", "verifying", "generating"];
-                const ci = phases.indexOf(phase);
-                const si = i;
-                const state = si < ci ? "done" : si === ci ? "active" : "pending";
-                return (
-                  <div key={s.k} className={`flex flex-col items-center gap-2 step-${state}`}>
-                    <div className="text-2xl" dangerouslySetInnerHTML={{ __html: si < ci ? "&#10003;" : s.icon }} />
-                    <div className="text-xs">{s.l}</div>
+            {/* Animated progress bar */}
+            {(() => {
+              const steps = ["searching", "verifying", "generating"];
+              const ci = steps.indexOf(phase);
+              const pct = ci < 0 ? 10 : ((ci + 1) / steps.length) * 100 - 10;
+              return (
+                <div className="mb-8">
+                  {/* Bar track */}
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: "#1E293B" }}>
+                    <div className="h-full rounded-full transition-all duration-1000 ease-out relative"
+                      style={{ width: `${pct}%`, background: "linear-gradient(90deg, #3B82F6, #60A5FA)" }}>
+                      {/* Shimmer effect */}
+                      <div className="absolute inset-0 rounded-full" style={{
+                        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)",
+                        animation: "shimmer 1.5s infinite",
+                      }} />
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+                  {/* Step labels under bar */}
+                  <div className="flex justify-between mt-3">
+                    {[
+                      { k: "searching", l: "Searching jobs" },
+                      { k: "verifying", l: "Verifying postings" },
+                      { k: "generating", l: "Writing cover letters" },
+                    ].map((s, i) => {
+                      const isDone = i < ci;
+                      const isActive = i === ci;
+                      return (
+                        <span key={s.k} className="text-xs font-medium transition-all duration-300" style={{
+                          color: isDone ? "#4ADE80" : isActive ? "#F0F4F8" : "#3D4A5C",
+                        }}>
+                          {isDone && <span style={{ color: "#4ADE80" }}>{"\u2713 "}</span>}
+                          {s.l}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Live log */}
-            <div className="bg-surface rounded-xl p-5 border border-border font-mono text-xs text-muted space-y-1.5">
+            <div className="rounded-xl p-5 font-mono text-xs space-y-2" style={{ background: "#0A0F1A", border: "1px solid #1E293B" }}>
               {progressLog.map((line, i) => (
-                <div key={i} className={i < progressLog.length - 1 ? "text-open" : "step-active"}>
-                  {i < progressLog.length - 1 ? "\u2713 " : "\u21BB "}{line}
+                <div key={i} className="transition-all duration-300" style={{
+                  color: i < progressLog.length - 1 ? "#4ADE80" : "#60A5FA",
+                }}>
+                  {i < progressLog.length - 1 ? "\u2713 " : "\u25B8 "}{line}
                 </div>
               ))}
-              <div className="text-muted/40 mt-2">This usually takes 30\u201360 seconds...</div>
+              <div style={{ color: "#3D4A5C" }} className="mt-3">{"This usually takes 30\u201360 seconds..."}</div>
             </div>
+
+            <style jsx>{`
+              @keyframes shimmer {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(200%); }
+              }
+            `}</style>
           </div>
         )}
 
@@ -539,12 +571,12 @@ function DashboardInner() {
                   {result.audit_summary?.cl_generated} cover letters written
                 </p>
                 {result.errors && result.errors.length > 0 && (
-                  <p className="text-warn text-xs mt-1">&#9888; {result.errors[0]}</p>
+                  <p className="text-warn text-xs mt-1">! {result.errors[0]}</p>
                 )}
               </div>
               <div className="flex gap-2 shrink-0">
                 <button onClick={handleDownload} className="btn-gold flex items-center gap-2 text-sm">
-                  &#128229; Download Excel
+                  Download Excel
                 </button>
                 <button onClick={() => { setResult(null); setPhase("parsed"); }} className="btn-blue text-sm">
                   New search
@@ -632,7 +664,7 @@ function DashboardInner() {
                   </div>
 
                   <div className="text-xs text-muted mb-3">
-                    &#128205; {job.location}{job.remote ? " \u00B7 Remote" : ""}
+                    {job.location}{job.remote ? " \u00B7 Remote" : ""}
                   </div>
 
                   {/* Badges row */}
@@ -651,8 +683,8 @@ function DashboardInner() {
                         "border-border text-muted"
                       }`}>{job.audit.posting_age_days}d ago</span>
                     )}
-                    {job.audit?.degree_match === "ok" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-open">Degree &#10003;</span>}
-                    {job.audit?.visa === "confirmed" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-open">Visa &#10003;</span>}
+                    {job.audit?.degree_match === "ok" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-open">Degree ✓</span>}
+                    {job.audit?.visa === "confirmed" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-open">Visa ✓</span>}
                     {job.audit?.visa === "no_sponsor" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-closed">No visa</span>}
                     {job.audit?.ghost_risk === "high" && <span className="text-[10px] px-1.5 py-0.5 rounded-full badge-warn">Ghost risk</span>}
                   </div>
@@ -719,7 +751,7 @@ function DashboardInner() {
 
             {result.jobs.length === 0 && (
               <div className="text-center py-16 text-muted">
-                <div className="text-4xl mb-4 opacity-30">&#128533;</div>
+                <div className="text-4xl mb-4 opacity-30"></div>
                 <p>No jobs passed verification for your criteria.</p>
                 <p className="text-sm mt-2">Try broadening your search directions or disabling visa filtering.</p>
               </div>
