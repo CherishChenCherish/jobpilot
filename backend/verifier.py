@@ -117,7 +117,7 @@ def _verify_greenhouse_api(url: str) -> tuple[str, str, str]:
     slug, job_id = m.group(1), m.group(2)
     api_url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}"
     try:
-        r = requests.get(api_url, timeout=8)
+        r = requests.get(api_url, timeout=5)
         if r.status_code == 200:
             data = r.json()
             title = data.get("title", "")
@@ -135,7 +135,7 @@ def _verify_greenhouse_api(url: str) -> tuple[str, str, str]:
 def _verify_lever_api(url: str) -> tuple[str, str, str]:
     """Returns (status, confidence, reason)."""
     try:
-        r = requests.get(url, timeout=8, allow_redirects=False, headers=HEADERS)
+        r = requests.get(url, timeout=5, allow_redirects=False, headers=HEADERS)
         if r.status_code == 200:
             return "open", "high", "Lever posting responds 200 (active)"
         elif r.status_code in (301, 302):

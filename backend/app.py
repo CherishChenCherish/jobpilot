@@ -253,8 +253,8 @@ def search_route():
             "errors": ["No jobs found matching your criteria. Try broadening your search directions."],
         }), 200
 
-    # Top 8 for verification (keep under 20s for reliable response)
-    to_verify = all_jobs[:8]
+    # Top 5 for verification (keep total response under 15s)
+    to_verify = all_jobs[:5]
 
     # ── STAGE 2: Verify ──────────────────────────────────
     print(f"[pipeline] Stage 2: Verifying {len(to_verify)} jobs...")
@@ -268,6 +268,15 @@ def search_route():
             if "audit" not in j:
                 j["audit"] = {"status": "⚠ Unverified", "confidence": "low",
                               "reason": "Verification unavailable", "drop": False}
+
+    # Add remaining jobs as unverified (so user still sees them)
+    for j in all_jobs[5:15]:
+        if j not in verified:
+            j["audit"] = {"status": "⚠ Unverified", "confidence": "low",
+                          "reason": "Not verified (skipped for speed)", "drop": False,
+                          "degree_match": "unknown", "visa": "unspecified",
+                          "posting_age_days": None, "ghost_risk": "unknown", "needs_manual_check": True}
+            verified.append(j)
 
     open_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "✓ Open")
     unverified_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "⚠ Unverified")
