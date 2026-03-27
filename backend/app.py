@@ -554,9 +554,12 @@ def stripe_webhook():
     return "", 200
 
 
+# ── Auto-create tables on startup (works with gunicorn too) ──
+
+with app.app_context():
+    db.create_all()
+
 # ── Run ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     app.run(debug=False, port=5000)
