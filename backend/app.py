@@ -261,12 +261,44 @@ def search_route():
         # Query from cache — instant
         query = CachedJob.query.filter_by(is_active=True, status="open")
 
-        # Filter by directions
+        # Filter by directions (category + title relevance)
+        import re as _re
+        DIRECTION_TITLE_KEYWORDS = {
+            "DS/ML": ["data scien", "machine learn", "ml ", "ai ", "analytics", "algorithm", "nlp", "deep learn"],
+            "Data Engineering": ["data engineer", "etl", "pipeline", "data infra"],
+            "Software Engineering": ["software engineer", "software develop", "backend", "frontend", "full stack", "swe"],
+            "Health Informatics": ["health", "clinical", "biomedical", "pharma", "bioinform"],
+            "Business Analytics": ["business analyst", "strategy", "business intelligence", "analytics"],
+            "Product Management": ["product manager", "product analyst", "program manager"],
+            "Quantitative Finance": ["quant", "trading", "financial analyst"],
+            "Research / NLP": ["research", "nlp", "natural language"],
+            "Consulting": ["consult", "advisory"],
+        }
+
         all_cached = query.all()
         matched = []
         for cj in all_cached:
             cats = cj.categories or []
-            if any(d in cats for d in directions):
+            if not any(d in cats for d in directions):
+                continue
+
+            # Title must also match at least one keyword from selected directions
+            title_lower = cj.title.lower()
+            title_relevant = False
+            for d in directions:
+                kws = DIRECTION_TITLE_KEYWORDS.get(d, [])
+                if any(k in title_lower for k in kws):
+                    title_relevant = True
+                    break
+            # Fallback: if job title contains "intern" and category matches, still include
+            # (catches generic "Data Intern" type titles)
+            if not title_relevant and "intern" in title_lower:
+                # Only if title has at least some data/tech signal
+                tech_signals = ["data", "engineer", "scien", "analyst", "research", "ml", "ai"]
+                if any(s in title_lower for s in tech_signals):
+                    title_relevant = True
+
+            if title_relevant:
                 matched.append(cj)
 
         # Filter by visa

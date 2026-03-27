@@ -336,9 +336,26 @@ function DashboardInner() {
               </h2>
 
               {phase === "uploading" && (
-                <div className="upload-zone rounded-xl p-12 text-center">
-                  <div className="text-2xl step-active">...</div>
-                  <p className="text-muted mt-2">Parsing your resume...</p>
+                <div className="rounded-xl p-12 text-center" style={{ background: "#0F1629", border: "1px solid #1E293B" }}>
+                  {/* Animated progress bar */}
+                  <div className="w-48 h-1.5 rounded-full mx-auto mb-5 overflow-hidden" style={{ background: "#1E293B" }}>
+                    <div className="h-full rounded-full" style={{
+                      background: "linear-gradient(90deg, #3B82F6, #60A5FA)",
+                      animation: "parseProgress 12s ease-out forwards",
+                      width: "0%",
+                    }} />
+                  </div>
+                  <p style={{ color: "#F0F4F8" }} className="text-sm font-medium">Analyzing your resume</p>
+                  <p style={{ color: "#5B6B82" }} className="text-xs mt-1">Extracting skills, metrics, and experience...</p>
+                  <style jsx>{`
+                    @keyframes parseProgress {
+                      0% { width: 0%; }
+                      30% { width: 40%; }
+                      60% { width: 70%; }
+                      90% { width: 85%; }
+                      100% { width: 95%; }
+                    }
+                  `}</style>
                 </div>
               )}
 
@@ -770,7 +787,9 @@ function DashboardInner() {
                         </button>
                       </>
                     ) : generatingCL === idx ? (
-                      <span className="text-xs px-3 py-1.5 text-muted step-active">Writing...</span>
+                      <span className="text-xs px-3 py-1.5 rounded" style={{ color: "#60A5FA", background: "#3B82F610", border: "1px solid #3B82F630" }}>
+                        <span className="step-active">Writing cover letter</span>
+                      </span>
                     ) : (
                       <button onClick={() => handleGenerateCL(idx)}
                         disabled={generatingCL !== null}
