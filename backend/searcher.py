@@ -449,17 +449,7 @@ def search_jobs(profile: dict, prefs: dict) -> list[dict]:
                 "company_size": "mid",
             })
 
-    # ── Phase C: Add curated verified jobs ──────────────────
-    curated = CURATED_JOBS.get(job_type, [])
-    for cj in curated:
-        # Filter by direction
-        if not any(d in cj.get("categories", []) for d in directions):
-            continue
-        # Degree check
-        if not _degree_compatible(cj["title"], cj.get("description_snippet", ""), degree):
-            continue
-        all_jobs.append(cj)
-
+    # No curated jobs — all jobs come from ATS APIs and are verified
     # ── Deduplicate by (company, title) ─────────────────────
     seen = set()
     deduped = []

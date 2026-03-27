@@ -446,6 +446,25 @@ def export_direct():
 
 # ── Admin: daily refresh ───────────────────────────────────
 
+@app.route("/api/admin/wipe-and-reseed", methods=["POST"])
+def admin_wipe():
+    """Nuclear option: wipe all cached jobs and re-seed from scratch."""
+    secret = request.headers.get("X-Admin-Secret", "")
+    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    if secret != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    # Wipe everything
+    count = CachedJob.query.delete()
+    db.session.commit()
+    print(f"[admin] Wiped {count} cached jobs")
+
+    # Re-seed
+    log = daily_refresh()
+    log["wiped"] = count
+    return jsonify(log)
+
+
 @app.route("/api/admin/daily-refresh", methods=["POST"])
 def admin_daily_refresh():
     secret = request.headers.get("X-Admin-Secret", "")
