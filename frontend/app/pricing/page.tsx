@@ -6,15 +6,6 @@ import Link from "next/link";
 export default function Pricing() {
   return (
     <main className="min-h-screen">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-5 max-w-6xl mx-auto">
-        <Link href="/" className="text-2xl font-bold tracking-tight">
-          Job<span className="text-accent">Pilot</span>
-        </Link>
-        <button onClick={() => signIn("google")} className="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition">
-          Sign in
-        </button>
-      </nav>
 
       <div className="max-w-4xl mx-auto px-8 py-20">
         <h1 className="text-4xl font-serif text-center mb-4">Simple, honest pricing</h1>

@@ -33,23 +33,6 @@ export default function Landing() {
 
   return (
     <main className="min-h-screen">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-5 max-w-6xl mx-auto">
-        <div className="text-2xl font-bold tracking-tight">
-          Job<span className="text-accent">Pilot</span>
-        </div>
-        <div className="flex items-center gap-6">
-          <Link href="/pricing" className="text-muted hover:text-white transition text-sm">
-            Pricing
-          </Link>
-          <button
-            onClick={() => signIn("google")}
-            className="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition"
-          >
-            Sign in
-          </button>
-        </div>
-      </nav>
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-8 pt-20 pb-16 text-center">

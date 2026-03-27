@@ -291,15 +291,31 @@ function DashboardInner() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border max-w-7xl mx-auto">
-        <div className="text-xl font-bold">Job<span className="text-accent">Pilot</span></div>
+      {/* Sub-header: quota + back navigation */}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-[11px] px-2.5 py-1 rounded-full bg-surface border border-border text-muted hidden sm:inline">{quota}</span>
-          <span className="text-sm text-muted hidden md:inline">{session?.user?.name || user?.name}</span>
-          <button onClick={() => signOut()} className="text-xs text-muted hover:text-white">Sign out</button>
+          {phase === "done" && result && (
+            <button onClick={() => { setResult(null); setPhase("parsed"); }}
+              className="text-xs text-[#5B6B82] hover:text-white flex items-center gap-1 transition">
+              <span>&larr;</span> Back to search
+            </button>
+          )}
+          {phase === "parsed" && (
+            <span className="text-xs text-[#5B6B82]">
+              Step 2 of 3: Choose preferences
+            </span>
+          )}
+          {phase === "idle" && (
+            <span className="text-xs text-[#5B6B82]">
+              Step 1 of 3: Upload resume
+            </span>
+          )}
         </div>
-      </header>
+        <span className="text-[11px] px-2.5 py-1 rounded-full border text-[#5B6B82]"
+          style={{ borderColor: "#1E293B", background: "#0F1629" }}>
+          {quota}
+        </span>
+      </div>
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8">
         {error && (
