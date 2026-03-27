@@ -556,8 +556,11 @@ def stripe_webhook():
 
 # ── Auto-create tables on startup (works with gunicorn too) ──
 
-with app.app_context():
-    db.create_all()
+try:
+    with app.app_context():
+        db.create_all()
+except Exception as e:
+    print(f"[startup] db.create_all warning: {e}")
 
 # ── Run ────────────────────────────────────────────────────
 
