@@ -146,8 +146,9 @@ function DashboardInner() {
     } catch { setError("Upload failed. Check your connection and try again."); setPhase("idle"); }
   }, []);
 
-  // ── Search (two-phase: jobs first, then CLs) ────────
-  const [clsLoading, setClsLoading] = useState(false);
+  // ── Search + per-job CL generation ──────────────────
+  const [clsLoading, setClsLoading] = useState(false);  // kept for header display
+  const [generatingCL, setGeneratingCL] = useState<number | null>(null);  // index of job currently generating CL
 
   const handleSearch = useCallback(async () => {
     if (!profile) return;
@@ -202,60 +203,46 @@ function DashboardInner() {
       setPhase("done");
       if (user) setUser({ ...user, searches_used: (user.searches_used || 0) + 1 });
 
-      // PHASE 2: Stream CLs via SSE (one by one, ~5-10s each)
-      if (data.jobs?.length > 0) {
-        setClsLoading(true);
-        const jobsParam = encodeURIComponent(JSON.stringify(data.jobs));
-        const profileParam = encodeURIComponent(JSON.stringify(profile));
-        const sseUrl = `${API}/api/generate-cls/stream?jobs=${jobsParam}&profile=${profileParam}`;
-
-        try {
-          const eventSource = new EventSource(sseUrl);
-          let clCount = 0;
-
-          eventSource.onmessage = (event) => {
-            try {
-              const msg = JSON.parse(event.data);
-
-              if (msg.type === "cl" && msg.cover_letter) {
-                clCount++;
-                // Merge this CL into existing jobs
-                setResult(prev => {
-                  if (!prev) return prev;
-                  const updated = { ...prev, jobs: [...prev.jobs] };
-                  if (msg.index < updated.jobs.length) {
-                    updated.jobs[msg.index] = { ...updated.jobs[msg.index], cover_letter: msg.cover_letter };
-                  }
-                  updated.audit_summary = { ...updated.audit_summary, cl_generated: clCount };
-                  return updated;
-                });
-              }
-
-              if (msg.type === "done") {
-                eventSource.close();
-                setClsLoading(false);
-                setResult(prev => prev ? {
-                  ...prev,
-                  audit_summary: { ...prev.audit_summary, cl_status: "done" }
-                } : prev);
-              }
-            } catch { /* ignore parse errors */ }
-          };
-
-          eventSource.onerror = () => {
-            eventSource.close();
-            setClsLoading(false);
-          };
-        } catch {
-          setClsLoading(false);
-        }
-      }
+      // No automatic CL generation — user clicks "Write CL" per job
     } catch (err) {
       clearTimeout(timer1);
       setError(`Search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`);
       setPhase("parsed");
     }
   }, [profile, directions, jobType, degreeTarget, visaNeeded, session, user]);
+
+  // ── Generate CL for one job (on-demand) ─────────────
+  const handleGenerateCL = useCallback(async (idx: number) => {
+    if (!result || !profile || generatingCL !== null) return;
+    const job = result.jobs[idx];
+    if (!job || job.cover_letter?.text) return;  // already has CL
+
+    setGeneratingCL(idx);
+    try {
+      const res = await fetch(`${API}/api/generate-cls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobs: [job], profile }),
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { data = JSON.parse(text.replace(/[\x00-\x1f\x7f]/g, ' ')); }
+
+      if (data.cover_letters?.[0]?.cover_letter) {
+        setResult(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev, jobs: [...prev.jobs] };
+          updated.jobs[idx] = { ...updated.jobs[idx], cover_letter: data.cover_letters[0].cover_letter };
+          return updated;
+        });
+        setExpandedCL(idx);  // Auto-expand the CL
+      }
+    } catch {
+      setError("Cover letter generation failed. Please try again.");
+    }
+    setGeneratingCL(null);
+  }, [result, profile, generatingCL]);
 
   // ── Download ──────────────────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -631,11 +618,11 @@ function DashboardInner() {
                 <p className="text-muted text-sm mt-1">
                   {result.audit_summary?.jobs_searched} searched &middot;
                   {result.audit_summary?.jobs_verified} passed verification
-                  {clsLoading ? (
-                    <span className="ml-1" style={{ color: "#60A5FA" }}>&middot; Writing cover letters...</span>
-                  ) : result.audit_summary?.cl_generated ? (
-                    <span> &middot; {result.audit_summary.cl_generated} cover letters ready</span>
-                  ) : null}
+                  {result.audit_summary?.cl_generated ? (
+                    <span> &middot; {result.audit_summary.cl_generated} cover letters written</span>
+                  ) : (
+                    <span className="ml-1" style={{ color: "#60A5FA" }}> &middot; Click "Write Cover Letter" on any job</span>
+                  )}
                 </p>
                 {result.errors && result.errors.length > 0 && (
                   <p className="text-warn text-xs mt-1">! {result.errors[0]}</p>
@@ -666,57 +653,29 @@ function DashboardInner() {
               </div>
             )}
 
-            {/* ── CHANGE 3: Best match highlight ── */}
-            {result.jobs.length > 0 && (() => {
-              // Find best job: confirmed open, lowest age, has CL
-              const best = result.jobs.reduce((a, b) => {
-                const aOpen = a.audit?.status?.includes("Open") ? 1 : 0;
-                const bOpen = b.audit?.status?.includes("Open") ? 1 : 0;
-                if (bOpen > aOpen) return b;
-                if (aOpen > bOpen) return a;
-                const aAge = a.audit?.posting_age_days ?? 999;
-                const bAge = b.audit?.posting_age_days ?? 999;
-                if (bAge < aAge) return b;
-                const aScore = a.cover_letter?.score ?? 0;
-                const bScore = b.cover_letter?.score ?? 0;
-                return bScore > aScore ? b : a;
-              });
-              const bestIdx = result.jobs.indexOf(best);
-              return best.audit?.status?.includes("Open") && best.cover_letter?.text ? (
-                <div className="mb-6 bg-gradient-to-r from-accent/10 via-surface to-surface rounded-2xl border border-accent/30 p-6">
-                  <div className="text-xs text-accent font-semibold mb-3 uppercase tracking-wider">Best match to apply today</div>
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <div className="text-lg font-semibold">{best.company}</div>
-                      <div className="text-sm text-muted">{best.title}</div>
-                      <div className="text-xs text-muted mt-1">{best.location}</div>
-                    </div>
-                    <a href={best.apply_url} target="_blank" rel="noopener noreferrer"
-                      className="btn-gold text-sm shrink-0">Apply \u2192</a>
+            {/* Best match highlight (no CL dependency) */}
+            {result.jobs.length > 0 && result.jobs[0]?.audit?.status?.includes("Open") && (
+              <div className="mb-6 bg-gradient-to-r from-accent/10 via-surface to-surface rounded-2xl border border-accent/30 p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-accent font-semibold uppercase tracking-wider mb-1">Top match</div>
+                    <div className="text-lg font-semibold">{result.jobs[0].company} &mdash; {result.jobs[0].title}</div>
+                    <div className="text-xs text-muted mt-1">{result.jobs[0].location}</div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 my-3">
-                    <StatusBadge status={best.audit.status} />
-                    {best.audit.posting_age_days != null && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-muted">{best.audit.posting_age_days}d ago</span>
-                    )}
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-accent/30 text-accent">
-                      CL {best.cover_letter.score}/{best.cover_letter.max_score}
-                    </span>
-                  </div>
-                  {/* CL open by default */}
-                  <div className="mt-4 p-4 bg-bg rounded-lg border border-border/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-muted">Cover letter (ready to paste)</span>
-                      <button onClick={() => { navigator.clipboard.writeText(best.cover_letter!.text); setCopied(bestIdx); setTimeout(() => setCopied(null), 2000); }}
-                        className={`text-xs px-3 py-1 rounded transition ${copied === bestIdx ? "bg-open/10 text-open" : "bg-card text-muted hover:text-white"}`}>
-                        {copied === bestIdx ? "Copied \u2713" : "Copy"}
+                  <div className="flex gap-2 shrink-0">
+                    {!result.jobs[0].cover_letter?.text && (
+                      <button onClick={() => handleGenerateCL(0)}
+                        disabled={generatingCL !== null}
+                        className="text-xs px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition">
+                        {generatingCL === 0 ? "Writing..." : "Write CL"}
                       </button>
-                    </div>
-                    <pre className="text-sm text-muted/90 whitespace-pre-wrap font-sans leading-relaxed">{best.cover_letter.text}</pre>
+                    )}
+                    <a href={result.jobs[0].apply_url} target="_blank" rel="noopener noreferrer"
+                      className="btn-gold text-sm">Apply</a>
                   </div>
                 </div>
-              ) : null;
-            })()}
+              </div>
+            )}
 
             {/* Job cards grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -791,9 +750,18 @@ function DashboardInner() {
                           {copied === idx ? "Copied \u2713" : "Copy CL"}
                         </button>
                       </>
-                    ) : clsLoading ? (
-                      <span className="text-xs px-3 py-1.5 text-muted step-active">Writing cover letter...</span>
-                    ) : null}
+                    ) : generatingCL === idx ? (
+                      <span className="text-xs px-3 py-1.5 text-muted step-active">Writing...</span>
+                    ) : (
+                      <button onClick={() => handleGenerateCL(idx)}
+                        disabled={generatingCL !== null}
+                        className={`text-xs px-3 py-1.5 rounded border transition ${
+                          generatingCL !== null ? "bg-card border-border text-muted/30 cursor-not-allowed"
+                          : "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20"
+                        }`}>
+                        Write Cover Letter
+                      </button>
+                    )}
                     <a href={job.apply_url} target="_blank" rel="noopener noreferrer"
                       className="text-xs px-3 py-1.5 rounded bg-accent/90 text-white hover:bg-accent transition ml-auto">
                       Apply &rarr;
