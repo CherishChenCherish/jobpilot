@@ -59,6 +59,64 @@ class Search(db.Model):
         }
 
 
+class CachedJob(db.Model):
+    """Pre-verified job cache. Refreshed daily."""
+    __tablename__ = "cached_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    company = db.Column(db.String(255), nullable=False)
+    title = db.Column(db.String(500), nullable=False)
+    apply_url = db.Column(db.Text, nullable=False, unique=True)
+    job_board = db.Column(db.String(50))  # greenhouse | lever | direct
+    location = db.Column(db.String(255))
+    remote = db.Column(db.Boolean, default=False)
+    status = db.Column(db.String(50), default="open")  # open | closed | unverified
+    confidence = db.Column(db.String(20), default="high")
+    ghost_risk = db.Column(db.String(20), default="low")
+    posting_age_days = db.Column(db.Integer)
+    description = db.Column(db.Text)
+    degree_required = db.Column(db.String(100))
+    visa_sponsorship = db.Column(db.String(50))
+    recommended_cv = db.Column(db.String(50))
+    categories = db.Column(db.JSON)  # ["DS/ML", "Health Informatics"]
+    match_reason = db.Column(db.Text)
+    key_requirements = db.Column(db.JSON)
+    company_size = db.Column(db.String(20))
+    date_added = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_verified_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    is_active = db.Column(db.Boolean, default=True, index=True)
+
+    def to_dict(self):
+        return {
+            "company": self.company,
+            "title": self.title,
+            "apply_url": self.apply_url,
+            "job_board": self.job_board or "",
+            "location": self.location or "",
+            "remote": self.remote or False,
+            "description_snippet": self.description or "",
+            "degree_required": self.degree_required or "",
+            "visa_sponsorship": self.visa_sponsorship or "",
+            "recommended_cv": self.recommended_cv or "V1-DS",
+            "categories": self.categories or [],
+            "match_reason": self.match_reason or "",
+            "key_requirements": self.key_requirements or [],
+            "company_size": self.company_size or "mid",
+            "posting_date": self.last_verified_at.strftime("%Y-%m-%d") if self.last_verified_at else "",
+            "audit": {
+                "status": "\u2713 Open" if self.status == "open" else "\u26A0 Unverified",
+                "confidence": self.confidence or "high",
+                "reason": f"Verified {self.last_verified_at.strftime('%Y-%m-%d %H:%M')}" if self.last_verified_at else "Cached",
+                "posting_age_days": self.posting_age_days,
+                "ghost_risk": self.ghost_risk or "low",
+                "degree_match": "ok",
+                "visa": self.visa_sponsorship or "unspecified",
+                "drop": False,
+                "needs_manual_check": False,
+            },
+        }
+
+
 class Subscription(db.Model):
     __tablename__ = "subscriptions"
 

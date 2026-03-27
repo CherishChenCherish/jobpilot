@@ -202,40 +202,53 @@ function DashboardInner() {
       setPhase("done");
       if (user) setUser({ ...user, searches_used: (user.searches_used || 0) + 1 });
 
-      // PHASE 2: Generate CLs in background (slow, ~30-60s)
+      // PHASE 2: Stream CLs via SSE (one by one, ~5-10s each)
       if (data.jobs?.length > 0) {
         setClsLoading(true);
-        try {
-          const clRes = await fetch(`${API}/api/generate-cls`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jobs: data.jobs, profile }),
-          });
-          const clData = await clRes.json();
+        const jobsParam = encodeURIComponent(JSON.stringify(data.jobs));
+        const profileParam = encodeURIComponent(JSON.stringify(profile));
+        const sseUrl = `${API}/api/generate-cls/stream?jobs=${jobsParam}&profile=${profileParam}`;
 
-          // Merge CLs into existing jobs
-          if (clData.cover_letters) {
-            setResult(prev => {
-              if (!prev) return prev;
-              const updated = { ...prev, jobs: [...prev.jobs] };
-              for (const cl of clData.cover_letters) {
-                if (cl.index < updated.jobs.length) {
-                  updated.jobs[cl.index] = { ...updated.jobs[cl.index], cover_letter: cl.cover_letter };
-                }
+        try {
+          const eventSource = new EventSource(sseUrl);
+          let clCount = 0;
+
+          eventSource.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+
+              if (msg.type === "cl" && msg.cover_letter) {
+                clCount++;
+                // Merge this CL into existing jobs
+                setResult(prev => {
+                  if (!prev) return prev;
+                  const updated = { ...prev, jobs: [...prev.jobs] };
+                  if (msg.index < updated.jobs.length) {
+                    updated.jobs[msg.index] = { ...updated.jobs[msg.index], cover_letter: msg.cover_letter };
+                  }
+                  updated.audit_summary = { ...updated.audit_summary, cl_generated: clCount };
+                  return updated;
+                });
               }
-              updated.audit_summary = {
-                ...updated.audit_summary,
-                cl_generated: clData.cl_generated,
-                avg_cl_score: clData.avg_score,
-                cl_status: "done",
-              };
-              return updated;
-            });
-          }
+
+              if (msg.type === "done") {
+                eventSource.close();
+                setClsLoading(false);
+                setResult(prev => prev ? {
+                  ...prev,
+                  audit_summary: { ...prev.audit_summary, cl_status: "done" }
+                } : prev);
+              }
+            } catch { /* ignore parse errors */ }
+          };
+
+          eventSource.onerror = () => {
+            eventSource.close();
+            setClsLoading(false);
+          };
         } catch {
-          // CL generation failed — jobs still visible
+          setClsLoading(false);
         }
-        setClsLoading(false);
       }
     } catch (err) {
       clearTimeout(timer1);

@@ -10,12 +10,13 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-from models import db, User, Search, Subscription
+from models import db, User, Search, Subscription, CachedJob
 from parser import parse_resume, ParseError
 from searcher import search_jobs as run_search
-from verifier import verify_all_jobs
+from verifier import verify_all_jobs, verify_one
 from generator import generate_cover_letter
 from exporter import export_excel
+from daily_refresh import daily_refresh
 
 load_dotenv()
 
@@ -203,140 +204,91 @@ def parse_resume_route():
         return jsonify({"error": f"Unexpected: {str(e)}"}), 500
 
 
-# ── POST /api/search — FULL PIPELINE ──────────────────────
-# Design: partial results > total failure. Every stage wraps errors.
-# Quota only increments on success.
+# ── POST /api/search — INSTANT from cache, fallback to live ──
 
 @app.route("/api/search", methods=["POST"])
 @limiter.limit("5 per minute")
 def search_route():
+    import re as _re
     data = request.get_json() or {}
-    errors = []  # Collect non-fatal errors for transparency
 
-    # a. Auth
     google_id = data.get("google_id")
     user = _get_user_or_mock(google_id)
 
-    # b. Quota check (BEFORE any work)
     if isinstance(user, User) and user.plan == "free" and user.searches_used >= FREE_SEARCH_LIMIT:
-        return jsonify({
-            "error": "quota_exceeded",
-            "message": f"Free plan allows {FREE_SEARCH_LIMIT} searches. Upgrade to Pro for unlimited.",
-            "searches_used": user.searches_used,
-        }), 402
+        return jsonify({"error": "quota_exceeded", "searches_used": user.searches_used}), 402
 
-    # c. Preferences
     profile = data.get("profile", {})
-    prefs = data.get("prefs", {
-        "directions": ["DS/ML", "Health Informatics"],
-        "job_type": "intern_2026",
-        "visa_needed": True,
-    })
+    prefs = data.get("prefs", {"directions": ["DS/ML"], "job_type": "intern_2026", "visa_needed": True})
+    directions = prefs.get("directions", ["DS/ML"])
 
-    print(f"\n[pipeline] Starting for {profile.get('name', 'Unknown')}")
-    print(f"[pipeline] Directions: {prefs.get('directions')}, Type: {prefs.get('job_type')}")
+    # ── Try cache first (instant, <2s) ──────────────────
+    cached_count = CachedJob.query.filter_by(is_active=True).count()
+    print(f"[search] Cache has {cached_count} active jobs")
 
-    # ── STAGE 1: Search ──────────────────────────────────
-    print("[pipeline] Stage 1: Searching...")
-    try:
+    if cached_count >= 10:
+        # Query from cache — instant
+        query = CachedJob.query.filter_by(is_active=True, status="open")
+
+        # Filter by directions
+        all_cached = query.all()
+        matched = []
+        for cj in all_cached:
+            cats = cj.categories or []
+            if any(d in cats for d in directions):
+                matched.append(cj)
+
+        # Filter by visa
+        if prefs.get("visa_needed"):
+            matched = [cj for cj in matched if cj.visa_sponsorship != "no_sponsor"]
+
+        # Sort by date (newest first)
+        matched.sort(key=lambda cj: cj.last_verified_at or cj.date_added, reverse=True)
+
+        result_jobs = [cj.to_dict() for cj in matched[:15]]
+        print(f"[search] Returning {len(result_jobs)} jobs from cache (instant)")
+
+        audit_summary = {
+            "jobs_searched": cached_count, "jobs_verified": len(result_jobs),
+            "jobs_open": len(result_jobs), "jobs_unverified": 0, "jobs_dropped": 0,
+            "cl_generated": 0, "cl_status": "pending", "source": "cache",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    else:
+        # ── Fallback: live search + verify (<20s) ──────────
+        print(f"[search] Cache empty ({cached_count}), falling back to live search")
         all_jobs = run_search(profile, prefs)
-        total_found = len(all_jobs)
-        print(f"[pipeline] Found {total_found} jobs")
-    except Exception as e:
-        errors.append(f"Search failed: {str(e)[:100]}")
-        return jsonify({"jobs": [], "audit_summary": {"error": str(e)}, "errors": errors}), 200
 
-    if total_found == 0:
-        return jsonify({
-            "jobs": [], "search_id": None,
-            "audit_summary": {"jobs_searched": 0, "jobs_verified": 0, "cl_generated": 0},
-            "errors": ["No jobs found matching your criteria. Try broadening your search directions."],
-        }), 200
+        if not all_jobs:
+            return jsonify({"jobs": [], "audit_summary": {"jobs_searched": 0}, "errors": ["No jobs found."]}), 200
 
-    # Verify top 15 jobs in parallel (target: under 20s)
-    to_verify = all_jobs[:15]
+        verified = verify_all_jobs(all_jobs[:15], profile, prefs)
+        open_count = sum(1 for j in verified if j.get("audit", {}).get("status", "").startswith("\u2713"))
+        result_jobs = [_serialize_job(j) for j in verified[:10]]
 
-    # ── STAGE 2: Verify ──────────────────────────────────
-    print(f"[pipeline] Stage 2: Verifying {len(to_verify)} jobs...")
-    try:
-        verified = verify_all_jobs(to_verify, profile, prefs)
-    except Exception as e:
-        # Verification failed — return unverified results rather than nothing
-        errors.append(f"Verification partially failed: {str(e)[:100]}. Showing unverified results.")
-        verified = to_verify
-        for j in verified:
-            if "audit" not in j:
-                j["audit"] = {"status": "⚠ Unverified", "confidence": "low",
-                              "reason": "Verification unavailable", "drop": False}
+        audit_summary = {
+            "jobs_searched": len(all_jobs), "jobs_verified": len(verified),
+            "jobs_open": open_count, "jobs_unverified": len(verified) - open_count,
+            "cl_generated": 0, "cl_status": "pending", "source": "live",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
-    open_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "✓ Open")
-    unverified_count = sum(1 for j in verified if j.get("audit", {}).get("status") == "⚠ Unverified")
-    print(f"[pipeline] {len(verified)} kept ({open_count} open, {unverified_count} unverified)")
-
-    if not verified:
-        errors.append("All jobs were filtered out during verification (degree mismatch, visa, or closed).")
-
-    # ── STAGE 3: Skip CLs — return jobs immediately ────
-    # CLs are generated separately via /api/generate-cls
-    print(f"[pipeline] Jobs ready. CLs will be generated on demand via /api/generate-cls")
-
-    # ── Build audit summary ──────────────────────────────
-    cl_scores = []
-    drop_reasons = {}
-    for j in all_jobs[:20]:
-        dr = j.get("audit", {}).get("drop_reason")
-        if dr:
-            key = dr.split("—")[0].strip() if "—" in dr else dr[:40]
-            drop_reasons[key] = drop_reasons.get(key, 0) + 1
-
-    audit_summary = {
-        "jobs_searched": total_found,
-        "jobs_verified": len(verified),
-        "jobs_open": open_count,
-        "jobs_unverified": unverified_count,
-        "jobs_dropped": len(all_jobs[:20]) - len(verified),
-        "drop_reasons": drop_reasons,
-        "cl_generated": 0,
-        "cl_scores": [],
-        "avg_cl_score": 0,
-        "max_cl_score": 0,
-        "needs_review_count": 0,
-        "cl_status": "pending",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-    result_jobs = [_serialize_job(j) for j in verified[:10]]
-
-    # ── Save to DB + increment quota (only on success) ───
+    # ── Save + increment quota ──────────────────────────
     search_id = None
     if isinstance(user, User) and result_jobs:
         try:
-            search_record = Search(
-                user_id=user.id,
-                prefs_json=prefs,
-                results_json={"jobs": result_jobs},
-                audit_json=audit_summary,
-            )
-            db.session.add(search_record)
-            user.searches_used += 1  # Only increment on success
+            sr = Search(user_id=user.id, prefs_json=prefs,
+                       results_json={"jobs": result_jobs}, audit_json=audit_summary)
+            db.session.add(sr)
+            user.searches_used += 1
             db.session.commit()
-            search_id = search_record.id
-        except Exception as e:
-            errors.append(f"Failed to save results: {str(e)[:60]}")
+            search_id = sr.id
+        except Exception:
             db.session.rollback()
 
-    print(f"[pipeline] Complete: {audit_summary['jobs_verified']} verified, CLs pending, search_id={search_id}")
-
-    # Sanitize response to remove control characters
-    import re as _re
-    response_data = {
-        "search_id": search_id,
-        "jobs": result_jobs,
-        "audit_summary": audit_summary,
-        "errors": errors if errors else None,
-    }
-    clean_json = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(response_data, ensure_ascii=False))
-    return app.response_class(clean_json, mimetype='application/json')
+    response = {"search_id": search_id, "jobs": result_jobs, "audit_summary": audit_summary, "errors": None}
+    clean = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(response, ensure_ascii=False))
+    return app.response_class(clean, mimetype='application/json')
 
 
 # ── POST /api/generate-cls — generate CLs for given jobs ──
@@ -458,6 +410,63 @@ def export_direct():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=f"JobPilot_{name}_{date_str}.xlsx",
+    )
+
+
+# ── Admin: daily refresh ───────────────────────────────────
+
+@app.route("/api/admin/daily-refresh", methods=["POST"])
+def admin_daily_refresh():
+    secret = request.headers.get("X-Admin-Secret", "")
+    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    if secret != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    log = daily_refresh()
+    return jsonify(log)
+
+
+# ── SSE: stream cover letters one by one ──────────────────
+
+@app.route("/api/generate-cls/stream")
+def stream_cls():
+    """SSE endpoint: generate CLs one by one, stream as they complete."""
+    import re as _re
+
+    jobs_json = request.args.get("jobs", "[]")
+    profile_json = request.args.get("profile", "{}")
+
+    try:
+        jobs = json.loads(jobs_json)
+        profile = json.loads(profile_json)
+    except json.JSONDecodeError:
+        def error_stream():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Invalid JSON input'})}\n\n"
+        return app.response_class(error_stream(), mimetype='text/event-stream')
+
+    def generate():
+        for i, job in enumerate(jobs[:10]):
+            company = job.get("company", "?")
+            try:
+                cl = generate_cover_letter(job, profile)
+                # Clean control chars
+                cl_clean = json.loads(
+                    _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(cl, ensure_ascii=False))
+                )
+                event = json.dumps({"type": "cl", "index": i, "company": company, "cover_letter": cl_clean})
+                yield f"data: {event}\n\n"
+            except Exception as e:
+                event = json.dumps({"type": "cl", "index": i, "company": company,
+                                   "cover_letter": {"text": "", "score": 0, "max_score": 6,
+                                                    "needs_review": True, "error": str(e)[:80]}})
+                yield f"data: {event}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return app.response_class(
+        generate(),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
     )
 
 
