@@ -209,20 +209,45 @@ def me():
 @app.route("/api/parse", methods=["POST"])
 @limiter.limit("10 per minute")
 def parse_resume_route():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded. Send multipart/form-data with key 'file'"}), 400
+    import base64
 
-    file = request.files["file"]
-    if not file.filename:
-        return jsonify({"error": "Empty filename"}), 400
+    file_bytes = None
+    filename = "upload.docx"
 
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    # Method 1: multipart/form-data (browser upload)
+    if "file" in request.files:
+        file = request.files["file"]
+        if not file.filename:
+            return jsonify({"error": "Empty filename. Please select a file."}), 422
+        filename = file.filename
+        file_bytes = file.read()
+
+    # Method 2: JSON body with base64 resume (API/testing)
+    elif request.is_json:
+        data = request.get_json() or {}
+        resume_b64 = data.get("resume", "")
+        if not resume_b64:
+            return jsonify({"error": "No resume provided. Send a file via multipart/form-data or base64 in JSON body."}), 422
+        try:
+            file_bytes = base64.b64decode(resume_b64)
+        except Exception:
+            return jsonify({"error": "Invalid base64 encoding for resume."}), 422
+        filename = data.get("filename", "upload.docx")
+
+    else:
+        return jsonify({"error": "No file uploaded. Send as multipart/form-data with key 'file', or JSON with base64 'resume' field."}), 422
+
+    if not file_bytes or len(file_bytes) == 0:
+        return jsonify({"error": "Resume file is empty. Please upload a valid PDF or DOCX file."}), 422
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in {"pdf", "docx", "doc"}:
-        return jsonify({"error": f"Unsupported: .{ext}. Use PDF or DOCX."}), 400
+        return jsonify({"error": f"Unsupported file type: .{ext}. Use PDF or DOCX."}), 400
 
-    file_bytes = file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:
+        return jsonify({"error": "File too large. Maximum size is 10MB."}), 400
     try:
-        profile = parse_resume(file_bytes, file.filename)
+        profile = parse_resume(file_bytes, filename)
         # Sanitize: remove control characters that break JSON in transit
         import re as _re
         clean_profile = json.loads(
@@ -364,8 +389,14 @@ def generate_cls_route():
     jobs = data.get("jobs", [])
     profile = data.get("profile", {})
 
+    # Support alternative input format (job_id style from testing tools)
+    if not jobs and data.get("job_id"):
+        jobs = [{"company": "Unknown", "title": "Position", "description_snippet": data.get("job_description", "")}]
+    if not profile and data.get("user_id"):
+        profile = {"name": "User", "skills": [], "strongest_metrics": [], "work_history": []}
+
     if not jobs:
-        return jsonify({"error": "No jobs provided"}), 400
+        return jsonify({"error": "No jobs provided. Send {jobs: [...], profile: {...}}"}), 422
 
     cl_target = min(10, len(jobs))
     results = []
