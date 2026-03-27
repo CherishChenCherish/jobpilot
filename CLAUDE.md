@@ -37,12 +37,15 @@ No other bug takes priority over these four.
 - Greenhouse "intern" filter: use \bintern\b word boundary regex, not substring match ("Internal" and "International" both contain "intern" as substring)
 
 ## Current State (update this when things change)
-- Job cache: ~17 active verified jobs
+- Job cache: ~34 active verified jobs across 3 regions
+  - US: 15, UK: 1, HK: 1, CA/AU: growing
+- Regions supported: US, UK, CA, AU, HK, CN (6 total)
 - Daily refresh: GitHub Actions cron, working
-- Cover letters: generating, quality 5-6/6
+- Cover letters: generating on-demand, quality 5-6/6
 - Stripe: LIVE — sk_live key configured, REDACTED_STRIPE_PRICE_ID
 - Auth: Google OAuth working
 - Search speed: <1s from cache
+- Pending discovery: warm cache for empty regions
 - Production URLs:
   - Frontend: https://jobpilot-plum.vercel.app
   - Backend: https://jobpilot-v1.up.railway.app
