@@ -248,12 +248,9 @@ def parse_resume_route():
         return jsonify({"error": "File too large. Maximum size is 10MB."}), 400
     try:
         profile = parse_resume(file_bytes, filename)
-        # Sanitize: remove control characters that break JSON in transit
-        import re as _re
-        clean_profile = json.loads(
-            _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(profile, ensure_ascii=False))
-        )
-        return jsonify({"status": "parsed", "profile": clean_profile})
+        # Sanitize: force ASCII-safe JSON to eliminate all control char issues
+        safe_json = json.dumps({"status": "parsed", "profile": profile}, ensure_ascii=True)
+        return app.response_class(safe_json, mimetype='application/json')
     except ParseError as e:
         return jsonify({"error": str(e)}), 422
     except Exception as e:
