@@ -184,34 +184,34 @@ def _seed_curated_jobs(log):
         ("Match Group", "Machine Learning Engineer Intern", "https://jobs.lever.co/matchgroup", "lever", "Los Angeles, CA", ["DS/ML"], "V1-DS", "Large company", "ML for dating platforms."),
         ("Intuit", "AI Science Intern - Summer 2026", "https://jobs.intuit.com/job/mountain-view/summer-2026-ai-science-intern/27595/87369447088", "direct", "Mountain View, CA", ["DS/ML"], "V1-DS", "F-1 CPT", "AI for financial products."),
         # Software Engineering
-        ("Palantir", "Software Engineer Intern", "https://www.palantir.com/careers/", "direct", "New York / Palo Alto", ["Software Engineering", "DS/ML"], "V1-DS", "Top H1B sponsor", "Data analytics platform."),
-        ("Scale AI", "Software Engineering Intern", "https://scale.com/careers", "direct", "San Francisco", ["Software Engineering", "DS/ML"], "V1-DS", "Large company", "AI data infrastructure."),
+        ("Palantir", "Software Engineer Intern", "https://www.palantir.com/careers/students/", "direct", "New York / Palo Alto", ["Software Engineering", "DS/ML"], "V1-DS", "Top H1B sponsor", "Data analytics platform."),
+        ("Scale AI", "Software Engineering Intern", "https://scale.com/careers#open-positions", "direct", "San Francisco", ["Software Engineering", "DS/ML"], "V1-DS", "Large company", "AI data infrastructure."),
         # Data Engineering
-        ("Snowflake", "Data Engineering Intern 2026", "https://careers.snowflake.com/us/en", "direct", "San Mateo, CA", ["Data Engineering", "DS/ML"], "V1-DS", "Large company", "Cloud data platform."),
+        ("Snowflake", "Data Engineering Intern 2026", "https://careers.snowflake.com/us/en/search-results?keywords=intern", "direct", "San Mateo, CA", ["Data Engineering", "DS/ML"], "V1-DS", "Large company", "Cloud data platform."),
         # Health Informatics
-        ("Epic Systems", "Data Science Intern", "https://careers.epic.com/", "direct", "Verona, WI", ["Health Informatics"], "V3-Health", "Large company", "Healthcare EHR systems."),
-        ("Tempus", "Data Science Intern", "https://www.tempus.com/careers/", "direct", "Chicago, IL", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "AI-driven precision medicine."),
-        ("Flatiron Health", "Data Science Intern", "https://flatiron.com/careers/", "direct", "New York, NY", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "Oncology data analytics."),
+        ("Epic Systems", "Data Science Intern", "https://careers.epic.com/jobs?search=intern", "direct", "Verona, WI", ["Health Informatics"], "V3-Health", "Large company", "Healthcare EHR systems."),
+        ("Tempus", "Data Science Intern", "https://www.tempus.com/careers/#openings", "direct", "Chicago, IL", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "AI-driven precision medicine."),
+        ("Flatiron Health", "Data Science Intern", "https://flatiron.com/careers/#open-roles", "direct", "New York, NY", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "Oncology data analytics."),
         # Business Analytics / Consulting
-        ("McKinsey", "Business Analyst Intern", "https://www.mckinsey.com/careers/search-jobs", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Management consulting."),
-        ("Deloitte", "Business Analyst Intern", "https://apply.deloitte.com/careers", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Large company", "Consulting and advisory."),
-        ("BCG", "Associate Intern", "https://careers.bcg.com/", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Strategy consulting."),
+        ("McKinsey", "Business Analyst Intern", "https://www.mckinsey.com/careers/search-jobs/jobs/businessanalystintern-15275", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Management consulting."),
+        ("Deloitte", "Business Analyst Intern", "https://apply.deloitte.com/en_US/careers/JobDetail/Internal-Strategy-Business-Analyst-Summer-Intern/318348", "direct", "New York, NY", ["Business Analytics", "Consulting"], "V2-Biz", "Large company", "Consulting and advisory."),
+        ("BCG", "Associate Intern", "https://careers.bcg.com/students", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Strategy consulting."),
         # Quantitative Finance
-        ("Citadel", "Quantitative Research Intern", "https://www.citadel.com/careers/", "direct", "Chicago / New York", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "Quantitative trading."),
-        ("DE Shaw", "Quantitative Analyst Intern", "https://www.deshaw.com/careers", "direct", "New York, NY", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "Quantitative investment."),
-        ("Jane Street", "Quantitative Trading Intern", "https://www.janestreet.com/join-jane-street/internships/", "direct", "New York, NY", ["Quantitative Finance"], "V1-DS", "Top sponsor", "Quantitative trading firm."),
+        ("Citadel", "Quantitative Research Analyst Intern (BS/MS)", "https://www.citadel.com/careers/details/quantitative-research-analyst-intern-bs-ms-us/", "direct", "New York / Chicago / Miami", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "11-week program. $4,300-$5,800/week."),
+        ("DE Shaw", "Quantitative Analyst Intern (Summer 2026)", "https://www.deshaw.com/careers/quantitative-analyst-intern-new-york-summer-2026-5519", "direct", "New York, NY", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "12-week program. $25K/month + $25K sign-on."),
+        ("Jane Street", "Quantitative Trading Intern", "https://www.janestreet.com/join-jane-street/internships/trading/", "direct", "New York, NY", ["Quantitative Finance"], "V1-DS", "Top sponsor", "Trading internship with elective program."),
         # Product Management
-        ("Google", "Product Manager Intern 2026", "https://www.google.com/about/careers/applications/", "direct", "Multiple US", ["Product Management", "DS/ML"], "V2-Biz", "Top H1B sponsor", "Product strategy."),
+        ("Google", "Product Manager Intern 2026", "https://www.google.com/about/careers/applications/internships/", "direct", "Multiple US", ["Product Management", "DS/ML"], "V2-Biz", "Top H1B sponsor", "Product strategy."),
         # Research / NLP
-        ("OpenAI", "Research Intern", "https://openai.com/careers/", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "AI safety and research."),
-        ("Anthropic", "Research Intern", "https://www.anthropic.com/careers", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "AI safety research."),
+        ("OpenAI", "Research Intern (Summer 2026)", "https://openai.com/careers/emerging-talent/", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "13-week paid internship. AI research."),
+        ("Anthropic", "Research Intern", "https://www.anthropic.com/careers#open-roles", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "AI safety research."),
         # More DS/ML
-        ("Netflix", "Data Science Intern", "https://jobs.netflix.com/", "direct", "Los Gatos, CA", ["DS/ML"], "V1-DS", "Large company", "Recommendation systems."),
+        ("Netflix", "Data Science Intern", "https://jobs.netflix.com/search?q=intern+data", "direct", "Los Gatos, CA", ["DS/ML"], "V1-DS", "Large company", "Recommendation systems."),
         ("Spotify", "Data Science Intern", "https://www.lifeatspotify.com/students", "direct", "New York, NY", ["DS/ML"], "V1-DS", "Large company", "Music ML and personalization."),
-        ("Uber", "Data Science Intern", "https://www.uber.com/us/en/careers/", "direct", "San Francisco, CA", ["DS/ML", "Data Engineering"], "V1-DS", "Large company", "Ride-sharing data platform."),
-        ("Airbnb", "Data Science Intern", "https://careers.airbnb.com/", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Travel marketplace analytics."),
-        ("Pinterest", "Data Science Intern", "https://www.pinterestcareers.com/", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Visual discovery ML."),
-        ("Block (Square)", "Data Science Intern", "https://block.xyz/careers", "direct", "San Francisco, CA", ["DS/ML", "Quantitative Finance"], "V1-DS", "Large company", "Fintech data analytics."),
+        ("Uber", "Data Science Intern", "https://www.uber.com/us/en/careers/list/?query=intern+data+science", "direct", "San Francisco, CA", ["DS/ML", "Data Engineering"], "V1-DS", "Large company", "Ride-sharing data platform."),
+        ("Airbnb", "Data Science Intern", "https://careers.airbnb.com/positions/?search=intern", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Travel marketplace analytics."),
+        ("Pinterest", "Data Science Intern", "https://www.pinterestcareers.com/jobs/?search=intern+data", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Visual discovery ML."),
+        ("Block (Square)", "Data Science Intern", "https://block.xyz/careers?search=intern", "direct", "San Francisco, CA", ["DS/ML", "Quantitative Finance"], "V1-DS", "Large company", "Fintech data analytics."),
     ]
 
     from datetime import datetime, timezone
