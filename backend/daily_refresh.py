@@ -12,11 +12,18 @@ def daily_refresh():
     log = {"checked": 0, "closed": 0, "new_added": 0, "cleaned": 0, "active_total": 0}
 
     # Step 0: Clean out non-intern/irrelevant jobs from cache
-    intern_signals = ["intern", "internship", "co-op", "new grad", "entry level", "junior", "associate"]
+    import re
     all_active = CachedJob.query.filter_by(is_active=True).all()
     for cj in all_active:
         title_lower = cj.title.lower()
-        if not any(s in title_lower for s in intern_signals):
+        # Must contain "intern" as a whole word (not "internal"/"international")
+        has_intern = bool(re.search(r'\bintern\b|\binternship\b|\bco-op\b|\bnew grad\b|\bentry level\b|\bjunior\b', title_lower))
+        if not has_intern:
+            cj.is_active = False
+            log["cleaned"] += 1
+        # Also remove PhD-only roles
+        phd_signals = ["phd ", "ph.d.", "doctoral"]
+        if any(p in title_lower for p in phd_signals):
             cj.is_active = False
             log["cleaned"] += 1
     db.session.commit()
@@ -80,10 +87,11 @@ def daily_refresh():
                 if not audit.get("status", "").startswith("\u2713"):
                     continue
 
-                # Quality filter: must contain intern/entry signal
+                # Quality filter: must contain intern/entry as whole word
                 title_lower = job.get("title", "").lower()
-                intern_signals = ["intern", "internship", "co-op", "new grad", "entry level", "junior", "associate"]
-                if not any(s in title_lower for s in intern_signals):
+                import re as _re
+                has_intern = bool(_re.search(r'\bintern\b|\binternship\b|\bco-op\b|\bnew grad\b|\bentry level\b|\bjunior\b', title_lower))
+                if not has_intern:
                     continue
 
                 # PhD filter: skip PhD-only roles for MS cache
