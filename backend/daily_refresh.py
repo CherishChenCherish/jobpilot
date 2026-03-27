@@ -21,9 +21,16 @@ def daily_refresh():
         if not has_intern:
             cj.is_active = False
             log["cleaned"] += 1
-        # Also remove PhD-only roles
+        # Remove PhD-only roles
         phd_signals = ["phd ", "ph.d.", "doctoral"]
         if any(p in title_lower for p in phd_signals):
+            cj.is_active = False
+            log["cleaned"] += 1
+        # Remove irrelevant titles (noise for DS/ML/Health users)
+        noise_words = ["android", "design", "legal", "tax", "recruiting",
+                       "hr ", "human resources", "mba ", "support engineer",
+                       "technical support", "interested in"]
+        if any(n in title_lower for n in noise_words):
             cj.is_active = False
             log["cleaned"] += 1
     db.session.commit()
@@ -94,11 +101,18 @@ def daily_refresh():
                 if not has_intern:
                     continue
 
-                # PhD filter: skip PhD-only roles for MS cache
+                # PhD filter
                 desc = job.get("description_snippet", "").lower() + " " + title_lower
                 phd_signals = ["phd required", "current phd student", "ph.d. required",
                                "doctoral required", "phd candidate"]
                 if any(p in desc for p in phd_signals):
+                    continue
+
+                # Noise title filter
+                noise_words = ["android", "design", "legal", "tax", "recruiting",
+                               "hr ", "human resources", "mba ", "support engineer",
+                               "technical support", "interested in"]
+                if any(n in title_lower for n in noise_words):
                     continue
 
                 cj = CachedJob(
