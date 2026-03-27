@@ -257,7 +257,7 @@ def search_route():
     cached_count = CachedJob.query.filter_by(is_active=True).count()
     print(f"[search] Cache has {cached_count} active jobs")
 
-    if cached_count >= 10:
+    if cached_count >= 3:
         # Query from cache — instant
         query = CachedJob.query.filter_by(is_active=True, status="open")
 
