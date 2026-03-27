@@ -117,10 +117,13 @@ function DashboardInner() {
 
   useEffect(() => { if (authStatus === "unauthenticated") router.push("/"); }, [authStatus, router]);
 
+  // Fetch user info when session is available
   useEffect(() => {
-    fetch(`${API}/api/me`).then(r => r.json()).then(setUser)
-      .catch(() => setUser({ name: "User", plan: "free", searches_used: 0 }));
-  }, []);
+    const gid = (session?.user as any)?.google_id;
+    const url = gid ? `${API}/api/me?google_id=${gid}` : `${API}/api/me`;
+    fetch(url).then(r => r.json()).then(setUser)
+      .catch(() => setUser({ name: session?.user?.name || "User", plan: "free", searches_used: 0 }));
+  }, [session]);
 
   // Stripe upgrade toast
   useEffect(() => {

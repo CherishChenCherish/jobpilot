@@ -169,13 +169,20 @@ def sync_user():
 
     user = User.query.filter_by(google_id=google_id).first()
     if not user:
+        email = data.get("email", "")
+        # Auto-grant pro to admin accounts
+        plan = "pro" if email in ("chrishchen2510@gmail.com", "cherishchen2510@gmail.com") else "free"
         user = User(
             google_id=google_id,
-            email=data.get("email", ""),
+            email=email,
             name=data.get("name", ""),
             avatar_url=data.get("avatar_url"),
+            plan=plan,
         )
         db.session.add(user)
+        db.session.commit()
+    elif user.email in ("chrishchen2510@gmail.com", "cherishchen2510@gmail.com") and user.plan != "pro":
+        user.plan = "pro"
         db.session.commit()
 
     remaining = max(0, FREE_SEARCH_LIMIT - user.searches_used) if user.plan == "free" else 999
