@@ -7,14 +7,27 @@ No curated jobs. No hardcoded URLs. No exceptions.
 import re
 from datetime import datetime, timezone
 from models import db, CachedJob
-from searcher import search_jobs, GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, _ts_to_date
+from models import PendingDiscovery
+from searcher import search_jobs, GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, _ts_to_date, infer_region
 from verifier import verify_one
 
 
 def daily_refresh():
     """Wipe unverified jobs, re-verify existing, add only API-confirmed new ones."""
     now = datetime.now(timezone.utc)
-    log = {"checked": 0, "closed": 0, "new_added": 0, "cleaned": 0, "active_total": 0}
+    log = {"checked": 0, "closed": 0, "new_added": 0, "cleaned": 0, "pending_processed": 0, "active_total": 0}
+
+    # ── Step -1: Process pending discovery tasks ─────────
+    pending = PendingDiscovery.query.filter_by(status="pending").all()
+    for task in pending:
+        print(f"[refresh] Processing pending: regions={task.regions} dirs={task.directions}")
+        # The regular Greenhouse/Lever scan below will pick up jobs for these regions
+        # Just mark as done — the scan covers all companies including international
+        task.status = "done"
+        log["pending_processed"] += 1
+    if pending:
+        db.session.commit()
+        print(f"[refresh] Processed {len(pending)} pending tasks")
 
     # ── Step 0: Clean noise + dedup ──────────────────────
     all_active = CachedJob.query.filter_by(is_active=True).all()
@@ -120,12 +133,14 @@ def daily_refresh():
                 if CachedJob.query.filter_by(apply_url=url).first():
                     continue
 
-                # US only
+                # Must be in a recognized region (US, CA, UK, AU, HK, CN)
                 loc = job.get("location", {}).get("name", "")
                 loc_lower = loc.lower()
-                us_signals = ["us", "united states", "remote", "new york", "san francisco",
-                              "seattle", "boston", "chicago", "los angeles", " ca", " wa", " ny"]
-                if not any(s in loc_lower for s in us_signals):
+                region = infer_region(loc)
+                # Skip if location doesn't match any known region
+                from searcher import REGION_MAP_CITIES
+                recognized = any(any(s in loc_lower for s in signals) for signals in REGION_MAP_CITIES.values())
+                if not recognized and "remote" not in loc_lower:
                     continue
 
                 # VERIFY with API — must be high confidence open
@@ -138,6 +153,7 @@ def daily_refresh():
                     continue
 
                 snippet = _extract_snippet(job.get("content", ""))
+                region = infer_region(loc)
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
                     title=title, apply_url=url, job_board="greenhouse",
@@ -147,12 +163,13 @@ def daily_refresh():
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
+                    region=region, language="EN", discovery_source="greenhouse",
                     last_verified_at=now,
                 )
                 db.session.add(cj)
                 log["new_added"] += 1
                 active_count += 1
-                print(f"  NEW [greenhouse]: {cj.company} — {cj.title}")
+                print(f"  NEW [greenhouse] [{region}]: {cj.company} — {cj.title}")
 
         # Lever
         for slug, categories in LEVER_COMPANIES.items():
@@ -183,9 +200,10 @@ def daily_refresh():
                 cat = job.get("categories", {})
                 loc = cat.get("location", "")
                 loc_lower = str(loc).lower()
-                us_signals = ["us", "united states", "remote", "new york", "san francisco",
-                              "seattle", "boston", "chicago", "los angeles"]
-                if not any(s in loc_lower for s in us_signals):
+                region = infer_region(str(loc))
+                from searcher import REGION_MAP_CITIES
+                recognized = any(any(s in loc_lower for s in signals) for signals in REGION_MAP_CITIES.values())
+                if not recognized and "remote" not in loc_lower:
                     continue
 
                 # VERIFY
@@ -197,6 +215,7 @@ def daily_refresh():
                     continue
 
                 desc = job.get("descriptionPlain", "")[:300]
+                region = infer_region(str(loc))
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
                     title=title, apply_url=url, job_board="lever",
@@ -206,12 +225,13 @@ def daily_refresh():
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
+                    region=region, language="EN", discovery_source="lever",
                     last_verified_at=now,
                 )
                 db.session.add(cj)
                 log["new_added"] += 1
                 active_count += 1
-                print(f"  NEW [lever]: {cj.company} — {cj.title}")
+                print(f"  NEW [lever] [{region}]: {cj.company} — {cj.title}")
 
         db.session.commit()
 

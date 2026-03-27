@@ -83,7 +83,46 @@ GREENHOUSE_COMPANIES = {
     "mckinsey": ["Business Analytics"],
     "bain": ["Business Analytics"],
     "bcg": ["Business Analytics"],
+    # ── International: Canada ──
+    "mongodb": ["Software Engineering", "DS/ML"],  # Toronto
+    "d2l": ["Software Engineering"],  # Kitchener/Toronto
+    "coveoen": ["Software Engineering", "DS/ML"],  # Montreal/Quebec
+    "okta": ["Software Engineering", "Business Analytics"],  # Toronto
+    "cloudflare": ["Software Engineering", "DS/ML", "Data Engineering"],  # Toronto
+    # ── International: UK ──
+    "drweng": ["Quantitative Finance", "Software Engineering"],  # London
+    "aquaticcapitalmanagement": ["Quantitative Finance"],  # London
+    "hudsonrivertrading": ["Quantitative Finance", "Software Engineering"],  # London
+    "moloco": ["DS/ML", "Software Engineering"],  # London
+    "altruistiq": ["DS/ML", "Health Informatics"],  # London
+    "clarityai": ["DS/ML"],  # London
+    "mavensecuritiesholdingltd": ["Quantitative Finance"],  # London
+    "charlesriverassociates": ["Business Analytics", "Consulting"],  # London
+    # ── International: AU ──
+    "canva": ["Software Engineering", "DS/ML"],  # Sydney
+    "atlassian": ["Software Engineering", "DS/ML"],  # Sydney
 }
+
+# Region inference from location
+REGION_MAP_CITIES = {
+    "US": ["united states", "new york", "san francisco", "seattle", "boston", "chicago",
+           "los angeles", "austin", "denver", "remote", " ca", " wa", " ny", " ma", " tx",
+           " il", " co", " ct", " pa", " or", " ga", " nc", " mn"],
+    "CA": ["canada", "toronto", "montreal", "vancouver", "ottawa", "kitchener", "waterloo", "calgary"],
+    "UK": ["united kingdom", "london", "manchester", "cambridge", "edinburgh", "oxford", " uk"],
+    "AU": ["australia", "sydney", "melbourne", "brisbane", "perth"],
+    "HK": ["hong kong", " hk"],
+    "CN": ["china", "beijing", "shanghai", "shenzhen", "hangzhou", "guangzhou",
+           "北京", "上海", "深圳", "杭州", "广州", "成都", "武汉", "南京"],
+}
+
+def infer_region(location: str) -> str:
+    """Infer region code from job location string."""
+    loc = location.lower()
+    for region, signals in REGION_MAP_CITIES.items():
+        if any(s in loc for s in signals):
+            return region
+    return "US"  # default
 
 LEVER_COMPANIES = {
     "matchgroup": ["DS/ML", "Software Engineering"],
@@ -99,6 +138,13 @@ LEVER_COMPANIES = {
     "everbridge": ["DS/ML", "Software Engineering"],
     "flockfreight": ["DS/ML", "Data Engineering"],
     "clearcover": ["DS/ML", "Business Analytics"],
+    # ── International: HK ──
+    "lalamove": ["Business Analytics", "Software Engineering"],  # Hong Kong
+    "ekimetrics": ["DS/ML"],  # Hong Kong
+    "hypebeast": ["Software Engineering"],  # Hong Kong
+    "animocabrands": ["Software Engineering"],  # Hong Kong
+    # ── International: AU ──
+    "shopback-2": ["Software Engineering", "DS/ML"],  # Sydney
 }
 
 # Verified curated jobs (manually confirmed open + real URLs)
