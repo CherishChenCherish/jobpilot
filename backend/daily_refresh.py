@@ -64,6 +64,10 @@ def daily_refresh():
     active_count = CachedJob.query.filter_by(is_active=True).count()
     print(f"[refresh] {active_count} active after re-verification")
 
+    # Step 2b: Add known good intern positions directly
+    _seed_curated_jobs(log)
+    active_count = CachedJob.query.filter_by(is_active=True).count()
+
     if active_count < 50:
         needed = 60 - active_count
         print(f"[refresh] Need {needed} more jobs. Searching...")
@@ -145,3 +149,47 @@ def daily_refresh():
     log["active_total"] = CachedJob.query.filter_by(is_active=True).count()
     print(f"[refresh] Done: {log}")
     return log
+
+
+def _seed_curated_jobs(log):
+    """Add known-good intern positions that the ATS scraper might miss."""
+    curated = [
+        ("Amazon", "2026 Data Science Internship (MS/PhD)", "https://www.amazon.jobs/en/jobs/3144155/2026-data-science-internship-united-states-phd-or-masters-student", "direct", "Seattle, WA", ["DS/ML"], "V1-DS", "OPT/CPT accepted", "Build ML models, analyze data at scale. $97K-185K annualized."),
+        ("Amazon", "Data Engineer Internship 2026 (US)", "https://www.amazon.jobs/en/jobs/3066625/data-engineer-internship-2026-us", "direct", "Multiple US", ["DS/ML", "Data Engineering"], "V1-DS", "OPT/CPT accepted", "Build data pipelines and ETL at scale."),
+        ("Visa", "Data Science Intern - Summer 2026", "https://corporate.visa.com/en/jobs/REF94329J", "direct", "Foster City, CA", ["DS/ML"], "V1-DS", "Supports international students", "Payment data ML models."),
+        ("IQVIA", "Data Science Intern - Summer 2026 (Remote)", "https://jobs.iqvia.com/en/search-jobs?k=data+science+intern", "direct", "Remote", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "Pharma retail ML models."),
+        ("Two Sigma", "Data Scientist Internship (Summer 2026)", "https://careers.twosigma.com/careers/JobDetail/New-York-New-York-United-States-Data-Scientist-Internship-Summer-2026/13585", "direct", "New York, NY", ["DS/ML", "Quantitative Finance"], "V1-DS", "Top H1B sponsor", "Quantitative research, 10-week program."),
+        ("UnitedHealth Group / Optum", "Graduate Data Science Internship - Summer 2026", "https://www.unitedhealthgroup.com/careers/en/work/early-careers/technology-and-analytics.html", "direct", "Eden Prairie, MN / Remote", ["Health Informatics"], "V3-Health", "Large company", "Healthcare data ML. $27-37/hr."),
+        ("Siemens Healthineers", "2026 Software & Data Science Internships", "https://careers.siemens-healthineers.com/global/en/job/R-23658/2026-Software-Data-Science-Internships", "direct", "Cary, NC", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "Healthcare technology data science."),
+        ("Rivian", "AI/ML & Data Science Intern, Summer 2026", "https://careers.rivian.com/careers-home/jobs/27354?lang=en-us", "direct", "Multiple US", ["DS/ML"], "V1-DS", "Large company", "AI/ML for sustainable transportation."),
+        ("JPMorgan Chase", "Data Science Intern 2026", "https://www.jpmorganchase.com/careers/explore-opportunities/programs/data-analytics-opportunities", "direct", "New York, NY", ["DS/ML", "Quantitative Finance"], "V1-DS", "Top H1B sponsor", "Quantitative analytics and data science."),
+        ("Databricks", "Data Science Intern 2026", "https://www.databricks.com/company/careers/university-recruiting", "direct", "San Francisco, CA", ["DS/ML", "Data Engineering"], "V1-DS", "Large company", "Data and AI platform company."),
+        ("Match Group", "Machine Learning Engineer Intern", "https://jobs.lever.co/matchgroup", "lever", "Los Angeles, CA", ["DS/ML"], "V1-DS", "Large company", "ML for dating platforms."),
+        ("Intuit", "AI Science Intern - Summer 2026", "https://jobs.intuit.com/job/mountain-view/summer-2026-ai-science-intern/27595/87369447088", "direct", "Mountain View, CA", ["DS/ML"], "V1-DS", "F-1 CPT", "AI for financial products."),
+    ]
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    added = 0
+
+    for company, title, url, board, location, categories, cv, visa, desc in curated:
+        existing = CachedJob.query.filter_by(apply_url=url).first()
+        if existing:
+            continue
+
+        cj = CachedJob(
+            company=company, title=title, apply_url=url, job_board=board,
+            location=location, remote="remote" in location.lower(),
+            status="open", confidence="medium", ghost_risk="low",
+            description=desc, visa_sponsorship=visa,
+            recommended_cv=cv, categories=categories,
+            company_size="large", is_active=True,
+            last_verified_at=now,
+        )
+        db.session.add(cj)
+        added += 1
+
+    db.session.commit()
+    log["new_added"] = log.get("new_added", 0) + added
+    if added:
+        print(f"[refresh] Added {added} curated jobs")
