@@ -1,9 +1,33 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
 
+const API = process.env.NEXT_PUBLIC_API_URL || "https://jobpilot-v1.up.railway.app";
+
 export default function Pricing() {
+  const { data: session } = useSession();
+
+  const handleUpgrade = async () => {
+    if (!session) {
+      signIn("google");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/stripe/create-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ google_id: (session.user as any)?.google_id }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      alert("Something went wrong. Please try again.");
+    }
+  };
+
   return (
     <main className="min-h-screen">
 
@@ -41,7 +65,7 @@ export default function Pricing() {
               <li>&#10003; Interview prep Q&A</li>
               <li>&#10003; Search history</li>
             </ul>
-            <button className="btn-gold w-full">Upgrade to Pro</button>
+            <button onClick={handleUpgrade} className="btn-gold w-full">Upgrade to Pro</button>
           </div>
         </div>
 

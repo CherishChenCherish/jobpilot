@@ -192,7 +192,7 @@ export default function Landing() {
               <li className="flex items-center gap-2"><span className="text-gold">&#10003;</span> Visa sponsor check</li>
               <li className="flex items-center gap-2"><span className="text-gold">&#10003;</span> Interview prep Q&A</li>
             </ul>
-            <button className="btn-gold w-full">Upgrade to Pro</button>
+            <button onClick={() => signIn("google")} className="btn-gold w-full">Upgrade to Pro</button>
           </div>
         </div>
       </section>
