@@ -10,7 +10,7 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-from models import db, User, Search, Subscription, CachedJob
+from models import db, User, Search, Subscription, CachedJob, PendingDiscovery
 from parser import parse_resume, ParseError
 from searcher import search_jobs as run_search
 from verifier import verify_all_jobs, verify_one
@@ -274,14 +274,19 @@ def search_route():
     profile = data.get("profile", {})
     prefs = data.get("prefs", {"directions": ["DS/ML"], "job_type": "intern_2026", "visa_needed": True})
     directions = prefs.get("directions", ["DS/ML"])
+    selected_regions = prefs.get("regions", ["US"])
 
     # ── Try cache first (instant, <2s) ──────────────────
     cached_count = CachedJob.query.filter_by(is_active=True).count()
-    print(f"[search] Cache has {cached_count} active jobs")
+    print(f"[search] Cache has {cached_count} active jobs, regions={selected_regions}")
 
     if cached_count >= 3:
-        # Query from cache — instant
-        query = CachedJob.query.filter_by(is_active=True, status="open")
+        # Query from cache — instant, filtered by region
+        query = CachedJob.query.filter(
+            CachedJob.is_active == True,
+            CachedJob.status == "open",
+            CachedJob.region.in_(selected_regions)
+        )
 
         # Filter by directions (category + title relevance)
         import re as _re
@@ -333,10 +338,26 @@ def search_route():
         result_jobs = [cj.to_dict() for cj in matched[:15]]
         print(f"[search] Returning {len(result_jobs)} jobs from cache (instant)")
 
+        warming = False
+        if len(result_jobs) < 3:
+            warming = True
+            # Create pending discovery task (dedup check)
+            existing = PendingDiscovery.query.filter_by(
+                status="pending"
+            ).filter(
+                PendingDiscovery.regions.cast(db.String).contains(str(selected_regions))
+            ).first()
+            if not existing:
+                task = PendingDiscovery(regions=selected_regions, directions=directions)
+                db.session.add(task)
+                db.session.commit()
+                print(f"[search] Created pending discovery: {selected_regions} x {directions}")
+
         audit_summary = {
             "jobs_searched": cached_count, "jobs_verified": len(result_jobs),
             "jobs_open": len(result_jobs), "jobs_unverified": 0, "jobs_dropped": 0,
             "cl_generated": 0, "cl_status": "pending", "source": "cache",
+            "warming": warming,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     else:
@@ -453,6 +474,57 @@ def _serialize_job(job: dict) -> dict:
             continue
         safe[k] = _clean(v)
     return safe
+
+
+# ── Admin: run migration for new columns ─────────────────
+
+@app.route("/api/admin/migrate", methods=["POST"])
+def admin_migrate():
+    secret = request.headers.get("X-Admin-Secret", "")
+    if secret != os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET"):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    from sqlalchemy import text
+    results = []
+    # Add new columns to cached_jobs if they don't exist
+    for col, coltype, default in [
+        ("region", "VARCHAR(10)", "'US'"),
+        ("language", "VARCHAR(5)", "'EN'"),
+        ("discovery_source", "VARCHAR(30)", "'greenhouse'"),
+    ]:
+        try:
+            db.session.execute(text(f"ALTER TABLE cached_jobs ADD COLUMN {col} {coltype} DEFAULT {default}"))
+            db.session.commit()
+            results.append(f"Added {col}: OK")
+        except Exception as e:
+            db.session.rollback()
+            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                results.append(f"{col}: already exists")
+            else:
+                results.append(f"{col}: error — {str(e)[:60]}")
+
+    # Create pending_discovery table
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS pending_discovery (
+                id SERIAL PRIMARY KEY,
+                regions JSON NOT NULL,
+                directions JSON NOT NULL,
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(20) DEFAULT 'pending'
+            )
+        """))
+        db.session.commit()
+        results.append("pending_discovery table: OK")
+    except Exception as e:
+        db.session.rollback()
+        results.append(f"pending_discovery: {str(e)[:60]}")
+
+    # Verify
+    count = CachedJob.query.filter_by(is_active=True).count()
+    results.append(f"Active jobs: {count}")
+
+    return jsonify({"migration": results})
 
 
 # ── GET /api/download/<search_id> ─────────────────────────

@@ -82,11 +82,20 @@ class CachedJob(db.Model):
     match_reason = db.Column(db.Text)
     key_requirements = db.Column(db.JSON)
     company_size = db.Column(db.String(20))
+    region = db.Column(db.String(10), default="US", index=True)  # US, CA, HK, CN, UK, AU
+    language = db.Column(db.String(5), default="EN")  # EN, CN
+    discovery_source = db.Column(db.String(30), default="greenhouse")  # greenhouse, lever, web_discovery
     date_added = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_verified_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     is_active = db.Column(db.Boolean, default=True, index=True)
 
+    REGION_FLAGS = {"US": "\U0001F1FA\U0001F1F8", "CA": "\U0001F1E8\U0001F1E6",
+                    "UK": "\U0001F1EC\U0001F1E7", "AU": "\U0001F1E6\U0001F1FA",
+                    "HK": "\U0001F1ED\U0001F1F0", "CN": "\U0001F1E8\U0001F1F3"}
+
     def to_dict(self):
+        flag = self.REGION_FLAGS.get(self.region or "US", "")
+        is_cn = (self.region == "CN")
         return {
             "company": self.company,
             "title": self.title,
@@ -102,6 +111,11 @@ class CachedJob(db.Model):
             "match_reason": self.match_reason or "",
             "key_requirements": self.key_requirements or [],
             "company_size": self.company_size or "mid",
+            "region": self.region or "US",
+            "region_flag": flag,
+            "language": self.language or "EN",
+            "discovery_source": self.discovery_source or "greenhouse",
+            "is_cn": is_cn,
             "posting_date": self.last_verified_at.strftime("%Y-%m-%d") if self.last_verified_at else "",
             "audit": {
                 "status": "\u2713 Open" if self.status == "open" else "\u26A0 Unverified",
@@ -115,6 +129,17 @@ class CachedJob(db.Model):
                 "needs_manual_check": False,
             },
         }
+
+
+class PendingDiscovery(db.Model):
+    """Tracks region+direction combos that need more jobs."""
+    __tablename__ = "pending_discovery"
+
+    id = db.Column(db.Integer, primary_key=True)
+    regions = db.Column(db.JSON, nullable=False)     # ["UK", "AU"]
+    directions = db.Column(db.JSON, nullable=False)  # ["DS/ML", "Health Informatics"]
+    requested_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    status = db.Column(db.String(20), default="pending")  # pending | done
 
 
 class Subscription(db.Model):

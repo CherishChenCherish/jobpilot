@@ -102,6 +102,7 @@ function DashboardInner() {
   const [degreeTarget, setDegreeTarget] = useState("masters");
   const [directions, setDirections] = useState<string[]>(["DS/ML", "Health Informatics"]);
   const [customDirection, setCustomDirection] = useState("");
+  const [regions, setRegions] = useState<string[]>(["US"]);
   const [visaNeeded, setVisaNeeded] = useState(true);
   const [prefsInitialized, setPrefsInitialized] = useState(false);
 
@@ -172,7 +173,7 @@ function DashboardInner() {
       // PHASE 1: Search + verify (fast, ~15s)
       const searchBody = JSON.stringify({
         google_id: (session?.user as any)?.google_id,
-        profile, prefs: { directions, job_type: jobType, degree_target: degreeTarget, visa_needed: visaNeeded },
+        profile, prefs: { directions, regions, job_type: jobType, degree_target: degreeTarget, visa_needed: visaNeeded },
       });
       const res = await fetch(`${API}/api/search`, {
         method: "POST",
@@ -273,6 +274,10 @@ function DashboardInner() {
   };
 
   const toggleDir = (d: string) => setDirections(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  const toggleRegion = (r: string) => setRegions(prev => {
+    const next = prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r];
+    return next.length > 0 ? next : prev; // at least one required
+  });
 
   if (authStatus === "loading") return <div className="flex items-center justify-center min-h-screen text-muted">Loading...</div>;
 
@@ -552,10 +557,32 @@ function DashboardInner() {
                   </div>
                 </div>
 
+                {/* Region */}
+                <div>
+                  <label className="text-xs text-muted mb-2 block">Region</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { code: "US", label: "United States", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
+                      { code: "UK", label: "United Kingdom", flag: "\uD83C\uDDEC\uD83C\uDDE7" },
+                      { code: "CA", label: "Canada", flag: "\uD83C\uDDE8\uD83C\uDDE6" },
+                      { code: "AU", label: "Australia", flag: "\uD83C\uDDE6\uD83C\uDDFA" },
+                      { code: "HK", label: "Hong Kong", flag: "\uD83C\uDDED\uD83C\uDDF0" },
+                      { code: "CN", label: "China Mainland", flag: "\uD83C\uDDE8\uD83C\uDDF3" },
+                    ].map(r => (
+                      <button key={r.code} onClick={() => toggleRegion(r.code)}
+                        className={`px-3 py-1.5 rounded-full text-sm transition border ${
+                          regions.includes(r.code) ? "border-accent text-accent bg-accent/10" : "border-border text-muted hover:border-muted"
+                        }`}>
+                        {r.flag} {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Visa */}
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={visaNeeded} onChange={e => setVisaNeeded(e.target.checked)} className="accent-accent w-4 h-4" />
-                  <span className="text-sm text-muted">I need visa sponsorship (OPT / CPT / H-1B)</span>
+                  <span className="text-sm text-muted">I need visa sponsorship</span>
                 </label>
 
                 {/* CTA */}
@@ -722,7 +749,10 @@ function DashboardInner() {
                       <div className="font-semibold truncate">{job.company}</div>
                       <div className="text-sm text-muted truncate">{job.title}</div>
                     </div>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-muted/60 shrink-0 ml-2">{job.job_board}</span>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {(job as any).region_flag && <span className="text-sm">{(job as any).region_flag}</span>}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-muted/60">{job.job_board}</span>
+                    </div>
                   </div>
 
                   <div className="text-xs text-muted mb-3">
@@ -771,9 +801,16 @@ function DashboardInner() {
                     )}
                   </div>
 
+                  {/* CN special notice */}
+                  {(job as any).is_cn && (
+                    <div className="text-[10px] text-muted mt-2 mb-1" style={{ color: "#5B6B82" }}>
+                      {"直接投递简历，无需Cover Letter"}
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div className="flex gap-2 mt-auto pt-2 border-t border-border/50">
-                    {job.cover_letter?.text ? (
+                    {(job as any).is_cn ? null : job.cover_letter?.text ? (
                       <>
                         <button onClick={() => setExpandedCL(expandedCL === idx ? null : idx)}
                           className="text-xs px-3 py-1.5 rounded bg-card border border-border text-muted hover:text-white hover:border-accent/50 transition">
@@ -825,10 +862,20 @@ function DashboardInner() {
             </div>
 
             {result.jobs.length === 0 && (
-              <div className="text-center py-16 text-muted">
-                <div className="text-4xl mb-4 opacity-30"></div>
-                <p>No jobs passed verification for your criteria.</p>
-                <p className="text-sm mt-2">Try broadening your search directions or disabling visa filtering.</p>
+              <div className="text-center py-16">
+                {(result.audit_summary as any)?.warming ? (
+                  <>
+                    <div className="w-8 h-8 rounded-full border-2 mx-auto mb-4" style={{ borderColor: "#3B82F6", borderTopColor: "transparent", animation: "spin 1s linear infinite" }} />
+                    <p style={{ color: "#F0F4F8" }}>We&apos;re finding jobs in your selected regions.</p>
+                    <p className="text-sm mt-2" style={{ color: "#5B6B82" }}>Results will appear when you search again &mdash; our system updates throughout the day.</p>
+                    <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color: "#A8B8CF" }}>No jobs found matching your criteria.</p>
+                    <p className="text-sm mt-2" style={{ color: "#5B6B82" }}>Try broadening your search directions or selecting more regions.</p>
+                  </>
+                )}
               </div>
             )}
           </div>
