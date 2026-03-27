@@ -9,7 +9,19 @@ from verifier import verify_one
 def daily_refresh():
     """Re-verify existing jobs, add new ones to fill gaps."""
     now = datetime.now(timezone.utc)
-    log = {"checked": 0, "closed": 0, "new_added": 0, "active_total": 0}
+    log = {"checked": 0, "closed": 0, "new_added": 0, "cleaned": 0, "active_total": 0}
+
+    # Step 0: Clean out non-intern/irrelevant jobs from cache
+    intern_signals = ["intern", "internship", "co-op", "new grad", "entry level", "junior", "associate"]
+    all_active = CachedJob.query.filter_by(is_active=True).all()
+    for cj in all_active:
+        title_lower = cj.title.lower()
+        if not any(s in title_lower for s in intern_signals):
+            cj.is_active = False
+            log["cleaned"] += 1
+    db.session.commit()
+    if log["cleaned"]:
+        print(f"[refresh] Cleaned {log['cleaned']} non-intern jobs from cache")
 
     # Step 1: Re-verify all active jobs
     active_jobs = CachedJob.query.filter_by(is_active=True).all()
@@ -68,11 +80,10 @@ def daily_refresh():
                 if not audit.get("status", "").startswith("\u2713"):
                     continue
 
-                # Quality filter: skip non-intern/entry roles
+                # Quality filter: must contain intern/entry signal
                 title_lower = job.get("title", "").lower()
-                skip_titles = ["director", "manager", "senior", "lead", "head of",
-                               "principal", "staff", "vp ", "vice president", "mba "]
-                if any(s in title_lower for s in skip_titles) and "intern" not in title_lower:
+                intern_signals = ["intern", "internship", "co-op", "new grad", "entry level", "junior", "associate"]
+                if not any(s in title_lower for s in intern_signals):
                     continue
 
                 # PhD filter: skip PhD-only roles for MS cache
