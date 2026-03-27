@@ -63,6 +63,10 @@ def daily_refresh():
         if any(p in title_lower for p in phd_signals):
             cj.is_active = False
             log["cleaned"] += 1
+        senior_signals = ["senior", "lead ", "director", "manager", "principal", "staff ", " vp "]
+        if any(s in title_lower for s in senior_signals):
+            cj.is_active = False
+            log["cleaned"] += 1
 
     db.session.commit()
     if log["cleaned"]:
@@ -123,8 +127,10 @@ def daily_refresh():
                 if any(n in title_lower for n in noise):
                     continue
 
-                # No PhD
+                # No PhD or senior
                 if "phd " in title_lower or "ph.d." in title_lower:
+                    continue
+                if "senior" in title_lower or "lead " in title_lower or "director" in title_lower or "manager" in title_lower or "principal" in title_lower:
                     continue
 
                 url = job.get("absolute_url", f"https://boards.greenhouse.io/{slug}/jobs/{job.get('id')}")
