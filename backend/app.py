@@ -67,21 +67,25 @@ def health():
 @app.route("/api/debug/tables")
 def debug_tables():
     """Temporary: show what tables exist in the database."""
-    from sqlalchemy import inspect
-    with app.app_context():
+    try:
+        from sqlalchemy import inspect, text
         inspector = inspect(db.engine)
         tables = inspector.get_table_names()
-        db_url = app.config.get("SQLALCHEMY_DATABASE_URI", "?")
-        # Mask password
-        if "@" in db_url:
-            db_url = db_url.split("@")[0][:20] + "...@" + db_url.split("@")[1]
+        db_url = str(app.config.get("SQLALCHEMY_DATABASE_URI", "?"))
+        # Mask credentials
+        safe_url = db_url.split("@")[-1] if "@" in db_url else db_url[:30]
+        # Count cached jobs if table exists
+        cj_count = None
+        if "cached_jobs" in tables:
+            cj_count = db.session.execute(text("SELECT COUNT(*) FROM cached_jobs")).scalar()
         return jsonify({
             "tables": tables,
-            "db_type": "postgresql" if "postgresql" in db_url else "sqlite",
-            "db_url_masked": db_url[:50],
+            "db_host": safe_url[:60],
             "cached_jobs_exists": "cached_jobs" in tables,
-            "cached_jobs_count": None,
+            "cached_jobs_count": cj_count,
         })
+    except Exception as e:
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
 
 
 # ── Demo verifier (no auth, rate-limited) ─────────────────
