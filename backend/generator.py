@@ -287,6 +287,19 @@ def _run_gates(text: str, company: str, jd_text: str) -> dict:
 
 # ── Main entry point ──────────────────────────────────────
 
+def _get_region_visa_instruction(region: str) -> str:
+    """Return region-appropriate visa/work authorization language."""
+    instructions = {
+        "US": "If visa needed, mention OPT/CPT/H-1B eligibility. Standard US cover letter.",
+        "CA": "If visa needed, mention study permit or post-graduation work permit. Do NOT mention OPT or H-1B (those are US-only terms).",
+        "UK": "If visa needed, mention Graduate visa route or post-study work visa. Do NOT mention OPT, CPT, or H-1B.",
+        "AU": "If visa needed, mention post-study work rights or Temporary Graduate visa (subclass 485). Do NOT mention OPT, CPT, or H-1B.",
+        "HK": "Mention availability to work in Hong Kong. Bilingual English/Chinese is an asset — mention it. Do NOT use US visa terms.",
+        "CN": "This should never be called for CN jobs.",
+    }
+    return instructions.get(region, instructions["US"])
+
+
 def generate_cover_letter(job: dict, profile: dict) -> dict:
     """Generate a cover letter for a specific job + candidate.
 
@@ -330,6 +343,10 @@ Skills matching this JD:
 {matching_skills if matching_skills else ['Python', 'SQL', 'ML', 'NLP']}
 
 Detected tone: {tone}
+Region: {job.get('region', 'US')}
+
+REGION-SPECIFIC INSTRUCTIONS:
+{_get_region_visa_instruction(job.get('region', 'US'))}
 
 Write the cover letter. Remember: 270-310 words, reference something SPECIFIC from the JD above."""
 

@@ -235,6 +235,38 @@ def daily_refresh():
 
         db.session.commit()
 
+    # ── Step 5: Web discovery for regions with few jobs ──
+    try:
+        from web_discovery import discover_jobs as web_discover
+        standard_dirs = ["DS/ML", "Software Engineering", "Health Informatics",
+                         "Business Analytics", "Quantitative Finance", "Research / NLP"]
+        for region in ["CA", "UK", "AU", "HK", "CN"]:
+            region_count = CachedJob.query.filter_by(is_active=True, region=region).count()
+            if region_count >= 10:
+                continue  # Already enough
+            print(f"[refresh] Web discovery for {region} ({region_count} existing)...")
+            try:
+                found = web_discover([region], standard_dirs[:3], max_per_combination=5)
+                for job_data in found:
+                    if CachedJob.query.filter_by(apply_url=job_data["apply_url"]).first():
+                        continue
+                    cj = CachedJob(
+                        company=job_data["company"], title=job_data["title"],
+                        apply_url=job_data["apply_url"], job_board="web_discovery",
+                        location=job_data["location"], remote=False,
+                        status="open", confidence=job_data["confidence"],
+                        region=job_data["region"], language=job_data["language"],
+                        discovery_source="web_discovery",
+                        is_active=True, last_verified_at=now,
+                    )
+                    db.session.add(cj)
+                    log["new_added"] += 1
+                db.session.commit()
+            except Exception as e:
+                print(f"[refresh] Web discovery error for {region}: {e}")
+    except ImportError:
+        print("[refresh] web_discovery module not available, skipping")
+
     log["active_total"] = CachedJob.query.filter_by(is_active=True).count()
     print(f"[refresh] Done: {log}")
     return log
