@@ -17,6 +17,7 @@ from verifier import verify_all_jobs, verify_one
 from generator import generate_cover_letter
 from exporter import export_excel
 from daily_refresh import daily_refresh
+from promise import filter_by_promise
 
 load_dotenv()
 
@@ -328,14 +329,20 @@ def search_route():
             if title_relevant:
                 matched.append(cj)
 
-        # Filter by visa
-        if prefs.get("visa_needed"):
-            matched = [cj for cj in matched if cj.visa_sponsorship != "no_sponsor"]
-
         # Sort by date (newest first)
         matched.sort(key=lambda cj: cj.last_verified_at or cj.date_added, reverse=True)
 
-        result_jobs = [cj.to_dict() for cj in matched[:15]]
+        candidate_jobs = [cj.to_dict() for cj in matched[:20]]
+
+        # ── FINAL GATE: Core Promise ──────────────────────
+        promise_prefs = {
+            "regions": selected_regions,
+            "directions": directions,
+            "visa_needed": prefs.get("visa_needed", False),
+            "degree_level": profile.get("degree_level", "Master"),
+        }
+        result_jobs, promise_rejected = filter_by_promise(candidate_jobs, promise_prefs)
+        result_jobs = result_jobs[:15]
         print(f"[search] Returning {len(result_jobs)} jobs from cache (instant)")
 
         warming = False
@@ -356,6 +363,7 @@ def search_route():
         audit_summary = {
             "jobs_searched": cached_count, "jobs_verified": len(result_jobs),
             "jobs_open": len(result_jobs), "jobs_unverified": 0, "jobs_dropped": 0,
+            "jobs_promise_rejected": len(promise_rejected),
             "cl_generated": 0, "cl_status": "pending", "source": "cache",
             "warming": warming,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -370,14 +378,40 @@ def search_route():
 
         verified = verify_all_jobs(all_jobs[:15], profile, prefs)
         open_count = sum(1 for j in verified if j.get("audit", {}).get("status", "").startswith("\u2713"))
-        result_jobs = [_serialize_job(j) for j in verified[:10]]
+        serialized = [_serialize_job(j) for j in verified]
+
+        # ── FINAL GATE: Core Promise ──────────────────────
+        promise_prefs = {
+            "regions": selected_regions,
+            "directions": directions,
+            "visa_needed": prefs.get("visa_needed", False),
+            "degree_level": profile.get("degree_level", "Master"),
+        }
+        result_jobs, promise_rejected = filter_by_promise(serialized, promise_prefs)
+        result_jobs = result_jobs[:10]
 
         audit_summary = {
             "jobs_searched": len(all_jobs), "jobs_verified": len(verified),
             "jobs_open": open_count, "jobs_unverified": len(verified) - open_count,
+            "jobs_promise_rejected": len(promise_rejected),
             "cl_generated": 0, "cl_status": "pending", "source": "live",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    # ── Zero results: clear message, not blank ──────────
+    if not result_jobs:
+        msg = "No jobs match your current filters."
+        parts = []
+        if selected_regions:
+            parts.append(f"regions: {', '.join(selected_regions)}")
+        if directions:
+            parts.append(f"directions: {', '.join(directions)}")
+        if prefs.get("visa_needed"):
+            parts.append("visa sponsorship required")
+        if parts:
+            msg += f" ({'; '.join(parts)})"
+        msg += " We're actively searching for more — check back soon."
+        audit_summary["zero_reason"] = msg
 
     # ── Save + increment quota ──────────────────────────
     search_id = None
@@ -392,7 +426,8 @@ def search_route():
         except Exception:
             db.session.rollback()
 
-    response = {"search_id": search_id, "jobs": result_jobs, "audit_summary": audit_summary, "errors": None}
+    errors = [audit_summary["zero_reason"]] if audit_summary.get("zero_reason") else None
+    response = {"search_id": search_id, "jobs": result_jobs, "audit_summary": audit_summary, "errors": errors}
     clean = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json.dumps(response, ensure_ascii=False))
     return app.response_class(clean, mimetype='application/json')
 
