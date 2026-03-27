@@ -11,9 +11,26 @@ def daily_refresh():
     now = datetime.now(timezone.utc)
     log = {"checked": 0, "closed": 0, "new_added": 0, "cleaned": 0, "active_total": 0}
 
-    # Step 0: Clean out non-intern/irrelevant jobs from cache
+    # Step 0: Clean noise + dedup
     import re
     all_active = CachedJob.query.filter_by(is_active=True).all()
+
+    # Dedup: if same company+title exists twice, keep newer one
+    seen_keys = {}
+    for cj in all_active:
+        key = (cj.company.lower().strip(), cj.title.lower().strip())
+        if key in seen_keys:
+            # Keep the one with more recent verification
+            old = seen_keys[key]
+            if (cj.last_verified_at or cj.date_added) > (old.last_verified_at or old.date_added):
+                old.is_active = False
+                seen_keys[key] = cj
+            else:
+                cj.is_active = False
+            log["cleaned"] += 1
+        else:
+            seen_keys[key] = cj
+    db.session.commit()
     for cj in all_active:
         title_lower = cj.title.lower()
         # Must contain "intern" as a whole word (not "internal"/"international")
@@ -166,6 +183,35 @@ def _seed_curated_jobs(log):
         ("Databricks", "Data Science Intern 2026", "https://www.databricks.com/company/careers/university-recruiting", "direct", "San Francisco, CA", ["DS/ML", "Data Engineering"], "V1-DS", "Large company", "Data and AI platform company."),
         ("Match Group", "Machine Learning Engineer Intern", "https://jobs.lever.co/matchgroup", "lever", "Los Angeles, CA", ["DS/ML"], "V1-DS", "Large company", "ML for dating platforms."),
         ("Intuit", "AI Science Intern - Summer 2026", "https://jobs.intuit.com/job/mountain-view/summer-2026-ai-science-intern/27595/87369447088", "direct", "Mountain View, CA", ["DS/ML"], "V1-DS", "F-1 CPT", "AI for financial products."),
+        # Software Engineering
+        ("Palantir", "Software Engineer Intern", "https://www.palantir.com/careers/", "direct", "New York / Palo Alto", ["Software Engineering", "DS/ML"], "V1-DS", "Top H1B sponsor", "Data analytics platform."),
+        ("Scale AI", "Software Engineering Intern", "https://scale.com/careers", "direct", "San Francisco", ["Software Engineering", "DS/ML"], "V1-DS", "Large company", "AI data infrastructure."),
+        # Data Engineering
+        ("Snowflake", "Data Engineering Intern 2026", "https://careers.snowflake.com/us/en", "direct", "San Mateo, CA", ["Data Engineering", "DS/ML"], "V1-DS", "Large company", "Cloud data platform."),
+        # Health Informatics
+        ("Epic Systems", "Data Science Intern", "https://careers.epic.com/", "direct", "Verona, WI", ["Health Informatics"], "V3-Health", "Large company", "Healthcare EHR systems."),
+        ("Tempus", "Data Science Intern", "https://www.tempus.com/careers/", "direct", "Chicago, IL", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "AI-driven precision medicine."),
+        ("Flatiron Health", "Data Science Intern", "https://flatiron.com/careers/", "direct", "New York, NY", ["Health Informatics", "DS/ML"], "V3-Health", "Large company", "Oncology data analytics."),
+        # Business Analytics / Consulting
+        ("McKinsey", "Business Analyst Intern", "https://www.mckinsey.com/careers/search-jobs", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Management consulting."),
+        ("Deloitte", "Business Analyst Intern", "https://apply.deloitte.com/careers", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Large company", "Consulting and advisory."),
+        ("BCG", "Associate Intern", "https://careers.bcg.com/", "direct", "Multiple US", ["Business Analytics", "Consulting"], "V2-Biz", "Top sponsor", "Strategy consulting."),
+        # Quantitative Finance
+        ("Citadel", "Quantitative Research Intern", "https://www.citadel.com/careers/", "direct", "Chicago / New York", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "Quantitative trading."),
+        ("DE Shaw", "Quantitative Analyst Intern", "https://www.deshaw.com/careers", "direct", "New York, NY", ["Quantitative Finance", "DS/ML"], "V1-DS", "Top sponsor", "Quantitative investment."),
+        ("Jane Street", "Quantitative Trading Intern", "https://www.janestreet.com/join-jane-street/internships/", "direct", "New York, NY", ["Quantitative Finance"], "V1-DS", "Top sponsor", "Quantitative trading firm."),
+        # Product Management
+        ("Google", "Product Manager Intern 2026", "https://www.google.com/about/careers/applications/", "direct", "Multiple US", ["Product Management", "DS/ML"], "V2-Biz", "Top H1B sponsor", "Product strategy."),
+        # Research / NLP
+        ("OpenAI", "Research Intern", "https://openai.com/careers/", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "AI safety and research."),
+        ("Anthropic", "Research Intern", "https://www.anthropic.com/careers", "direct", "San Francisco, CA", ["Research / NLP", "DS/ML"], "V1-DS", "Top sponsor", "AI safety research."),
+        # More DS/ML
+        ("Netflix", "Data Science Intern", "https://jobs.netflix.com/", "direct", "Los Gatos, CA", ["DS/ML"], "V1-DS", "Large company", "Recommendation systems."),
+        ("Spotify", "Data Science Intern", "https://www.lifeatspotify.com/students", "direct", "New York, NY", ["DS/ML"], "V1-DS", "Large company", "Music ML and personalization."),
+        ("Uber", "Data Science Intern", "https://www.uber.com/us/en/careers/", "direct", "San Francisco, CA", ["DS/ML", "Data Engineering"], "V1-DS", "Large company", "Ride-sharing data platform."),
+        ("Airbnb", "Data Science Intern", "https://careers.airbnb.com/", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Travel marketplace analytics."),
+        ("Pinterest", "Data Science Intern", "https://www.pinterestcareers.com/", "direct", "San Francisco, CA", ["DS/ML"], "V1-DS", "Large company", "Visual discovery ML."),
+        ("Block (Square)", "Data Science Intern", "https://block.xyz/careers", "direct", "San Francisco, CA", ["DS/ML", "Quantitative Finance"], "V1-DS", "Large company", "Fintech data analytics."),
     ]
 
     from datetime import datetime, timezone
