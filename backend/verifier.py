@@ -256,6 +256,41 @@ def _check_degree(text: str, degree: str) -> str:
     return "ok"
 
 
+def detect_degree_requirement(text: str) -> str:
+    """Detect the degree requirement from job text (title + description).
+
+    Returns: "PhD", "MS", or "BS".
+    Used at storage time to populate degree_required on CachedJob.
+    """
+    text_lower = text.lower()
+
+    # PhD signals — strongest requirement
+    for phrase in PHD_SIGNALS:
+        if phrase in text_lower:
+            return "PhD"
+    # Additional title-level PhD signals
+    if re.search(r'\bphd\b|\bph\.d\b|\bdoctoral\b', text_lower):
+        return "PhD"
+
+    # Master's signals
+    ms_signals = [
+        "master's degree required",
+        "master's required",
+        "ms required",
+        "requires a master",
+        "must have a master",
+        "graduate degree required",
+        "pursuing a master",
+        "enrolled in a master",
+    ]
+    for phrase in ms_signals:
+        if phrase in text_lower:
+            return "MS"
+
+    # Default: Bachelor's (least restrictive)
+    return "BS"
+
+
 def _check_visa(text: str) -> str:
     """Check visa sponsorship signals."""
     for phrase in NO_SPONSOR:

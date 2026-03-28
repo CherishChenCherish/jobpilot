@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from models import db, CachedJob
 from models import PendingDiscovery
 from searcher import search_jobs, GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, _ts_to_date, infer_region
-from verifier import verify_one
+from verifier import verify_one, detect_degree_requirement
 
 
 def daily_refresh():
@@ -159,13 +159,14 @@ def daily_refresh():
                     continue
 
                 snippet = _extract_snippet(job.get("content", ""))
+                degree_req = detect_degree_requirement(title + " " + snippet)
                 region = infer_region(loc)
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
                     title=title, apply_url=url, job_board="greenhouse",
                     location=loc, remote="remote" in loc_lower,
                     status="open", confidence="high", ghost_risk="low",
-                    description=snippet,
+                    description=snippet, degree_required=degree_req,
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
@@ -221,13 +222,14 @@ def daily_refresh():
                     continue
 
                 desc = job.get("descriptionPlain", "")[:300]
+                degree_req = detect_degree_requirement(title + " " + desc)
                 region = infer_region(str(loc))
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
                     title=title, apply_url=url, job_board="lever",
                     location=str(loc), remote="remote" in loc_lower,
                     status="open", confidence="high", ghost_risk="low",
-                    description=desc,
+                    description=desc, degree_required=degree_req,
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
@@ -256,11 +258,13 @@ def daily_refresh():
                 for job_data in found:
                     if CachedJob.query.filter_by(apply_url=job_data["apply_url"]).first():
                         continue
+                    degree_req = detect_degree_requirement(job_data["title"])
                     cj = CachedJob(
                         company=job_data["company"], title=job_data["title"],
                         apply_url=job_data["apply_url"], job_board="web_discovery",
                         location=job_data["location"], remote=False,
                         status="open", confidence=job_data["confidence"],
+                        degree_required=degree_req,
                         region=job_data["region"], language=job_data["language"],
                         discovery_source="web_discovery",
                         is_active=True, last_verified_at=now,
