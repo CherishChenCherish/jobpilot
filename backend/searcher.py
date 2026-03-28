@@ -79,6 +79,18 @@ GREENHOUSE_COMPANIES = {
     "chime": ["DS/ML", "Software Engineering"],
     "instacart": ["DS/ML", "Software Engineering", "Data Engineering"],
     "doordash": ["DS/ML", "Software Engineering", "Data Engineering"],
+    # ── Research-heavy (PhD intern sources) ──
+    "openai": ["DS/ML", "Research / NLP"],
+    "anthropic": ["DS/ML", "Research / NLP"],
+    "meta": ["DS/ML", "Research / NLP", "Software Engineering"],
+    "nvidia": ["DS/ML", "Research / NLP", "Software Engineering"],
+    "microsoftresearch": ["DS/ML", "Research / NLP"],
+    "allen-institute-for-ai": ["DS/ML", "Research / NLP"],
+    "toyotaresearchinstitute": ["DS/ML", "Research / NLP"],
+    "maboroshi": ["DS/ML", "Research / NLP"],
+    "2sigma": ["DS/ML", "Quantitative Finance", "Research / NLP"],
+    "janestreet": ["Quantitative Finance", "DS/ML"],
+    "citadel": ["Quantitative Finance", "DS/ML"],
     # ── Business / Consulting / Analytics ──
     "mckinsey": ["Business Analytics"],
     "bain": ["Business Analytics"],

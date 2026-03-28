@@ -59,10 +59,8 @@ def daily_refresh():
         if any(n in title_lower for n in noise_words):
             cj.is_active = False
             log["cleaned"] += 1
-        phd_signals = ["phd ", "ph.d.", "doctoral"]
-        if any(p in title_lower for p in phd_signals):
-            cj.is_active = False
-            log["cleaned"] += 1
+        # PhD: NOT blocked at storage — tagged with degree_required="PhD"
+        # and filtered at search time by the promise gate.
         senior_signals = ["senior", "lead ", "director", "manager", "principal", "staff ", " vp "]
         if any(s in title_lower for s in senior_signals):
             cj.is_active = False
@@ -127,9 +125,7 @@ def daily_refresh():
                 if any(n in title_lower for n in noise):
                     continue
 
-                # No PhD or senior
-                if "phd " in title_lower or "ph.d." in title_lower:
-                    continue
+                # No senior (PhD allowed — filtered at search time by promise gate)
                 if "senior" in title_lower or "lead " in title_lower or "director" in title_lower or "manager" in title_lower or "principal" in title_lower:
                     continue
 
@@ -194,8 +190,6 @@ def daily_refresh():
                     continue
                 noise = ["android", "design", "legal", "tax", "mba ", "support"]
                 if any(n in title_lower for n in noise):
-                    continue
-                if "phd " in title_lower:
                     continue
 
                 url = job.get("hostedUrl", "")

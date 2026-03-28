@@ -147,17 +147,47 @@ class TestIdentity:
         assert not ok
         assert "senior_role" in reason
 
-    # PhD — search-time filter
+    # Degree hierarchy: PhD > MS > BS
+    # PhD user sees all; MS user sees MS+BS; BS user sees BS only
+
     def test_phd_job_hidden_from_masters(self):
         ok, reason = passes_core_promise(
             _job(degree_required="PhD"), _prefs(degree_level="Master"))
         assert not ok
-        assert "phd_required" in reason
+        assert "degree_mismatch" in reason
+
+    def test_phd_job_hidden_from_bs(self):
+        ok, reason = passes_core_promise(
+            _job(degree_required="PhD"), _prefs(degree_level="Bachelor"))
+        assert not ok
+        assert "degree_mismatch" in reason
 
     def test_phd_job_shown_to_phd(self):
         ok, _ = passes_core_promise(
             _job(degree_required="PhD"), _prefs(degree_level="PhD"))
         assert ok
+
+    def test_ms_job_hidden_from_bs(self):
+        ok, reason = passes_core_promise(
+            _job(degree_required="MS"), _prefs(degree_level="Bachelor"))
+        assert not ok
+        assert "degree_mismatch" in reason
+
+    def test_ms_job_shown_to_masters(self):
+        ok, _ = passes_core_promise(
+            _job(degree_required="MS"), _prefs(degree_level="Master"))
+        assert ok
+
+    def test_ms_job_shown_to_phd(self):
+        ok, _ = passes_core_promise(
+            _job(degree_required="MS"), _prefs(degree_level="PhD"))
+        assert ok
+
+    def test_bs_job_shown_to_all(self):
+        for deg in ["Bachelor", "Master", "PhD"]:
+            ok, _ = passes_core_promise(
+                _job(degree_required="BS"), _prefs(degree_level=deg))
+            assert ok, f"BS job should pass for {deg} user"
 
     def test_phd_in_title_hidden_from_masters(self):
         ok, reason = passes_core_promise(

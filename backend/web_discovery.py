@@ -190,8 +190,8 @@ def _is_quality_job(title: str) -> bool:
     if not re.search(r'\bintern\b|\binternship\b|\b实习\b', title_lower):
         return False
 
-    # Must NOT contain senior/director signals
-    bad = ["senior", "lead", "manager", "director", "phd", "principal", "staff", "vp"]
+    # Must NOT contain senior/director signals (PhD allowed — filtered at search time)
+    bad = ["senior", "lead", "manager", "director", "principal", "staff", "vp"]
     if any(b in title_lower for b in bad):
         return False
 

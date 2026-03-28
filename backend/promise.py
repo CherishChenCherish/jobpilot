@@ -81,17 +81,26 @@ def passes_core_promise(job: dict, user_prefs: dict) -> tuple[bool, str]:
     if SENIOR_PATTERNS.search(title):
         return False, f"senior_role: '{job.get('title')}' ({company})"
 
-    # 4b: PhD — search-time filter based on user's degree
-    degree_required = (job.get("degree_required") or "").lower()
-    user_degree = (user_prefs.get("degree_level") or "").lower()
+    # 4b: Degree hierarchy — higher degree sees all below, not above
+    #   PhD user → sees PhD + MS + BS
+    #   MS/Master user → sees MS + BS (not PhD)
+    #   BS/Bachelor user → sees BS only
+    DEGREE_RANK = {"phd": 3, "doctoral": 3, "doctorate": 3,
+                   "ms": 2, "master": 2, "master's": 2,
+                   "bs": 1, "bachelor": 1, "bachelor's": 1}
 
-    if "phd" in degree_required or "doctoral" in degree_required:
-        if user_degree not in ("phd", "doctoral", "doctorate"):
-            return False, f"phd_required: user_degree={user_degree} ({company})"
+    degree_required = (job.get("degree_required") or "BS").strip()
+    user_degree = (user_prefs.get("degree_level") or "Master").strip()
 
-    # Also check title for PhD signals
+    job_rank = DEGREE_RANK.get(degree_required.lower(), 1)
+    user_rank = DEGREE_RANK.get(user_degree.lower(), 2)
+
+    if job_rank > user_rank:
+        return False, f"degree_mismatch: job_requires={degree_required} user={user_degree} ({company})"
+
+    # Also check title for PhD signals (backup if degree_required wasn't set)
     phd_title = bool(re.search(r'\bphd\b|\bph\.d\b|\bdoctoral\b', title))
-    if phd_title and user_degree not in ("phd", "doctoral", "doctorate"):
+    if phd_title and user_rank < 3:
         return False, f"phd_in_title: '{job.get('title')}' user_degree={user_degree} ({company})"
 
     # 4c: Visa — if user needs sponsorship, unknown is not yes
