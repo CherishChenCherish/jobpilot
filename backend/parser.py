@@ -217,7 +217,7 @@ Rules:
 
 
 def _call_claude(raw_text: str) -> dict[str, Any]:
-    """Call Claude API for structured extraction."""
+    """Call Claude API for structured extraction. Falls back to regex on any failure."""
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key or api_key in ("REPLACE_ME", "sk-ant-..."):
         return _regex_fallback(raw_text)
@@ -247,10 +247,27 @@ def _call_claude(raw_text: str) -> dict[str, Any]:
         response_text = re.sub(r"^```(?:json)?\s*", "", response_text)
         response_text = re.sub(r"\s*```$", "", response_text)
 
-    try:
-        return json.loads(response_text)
-    except json.JSONDecodeError as e:
-        raise ParseError(f"Claude returned invalid JSON: {e}\nFirst 300 chars: {response_text[:300]}")
+    # Try parsing JSON with progressive fallbacks
+    for attempt_text in [
+        response_text,
+        re.sub(r',\s*([}\]])', r'\1', re.sub(r'[\x00-\x1f]', ' ', response_text)),  # fix trailing commas + control chars
+    ]:
+        try:
+            return json.loads(attempt_text)
+        except json.JSONDecodeError:
+            continue
+
+    # Try extracting JSON object from surrounding prose
+    json_match = re.search(r'\{[\s\S]*\}', response_text)
+    if json_match:
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError:
+            pass
+
+    # All JSON parsing failed — fall back to regex
+    print(f"[parser] Claude JSON parse failed, using regex fallback. First 200 chars: {response_text[:200]}")
+    return _regex_fallback(raw_text)
 
 
 # ══════════════════════════════════════════════════════════
