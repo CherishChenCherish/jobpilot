@@ -643,6 +643,44 @@ def admin_daily_refresh():
     return jsonify(log)
 
 
+@app.route("/api/admin/backfill-degree", methods=["POST"])
+def admin_backfill_degree():
+    """One-time: populate degree_required for all existing jobs."""
+    secret = request.headers.get("X-Admin-Secret", "")
+    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    if secret != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    from verifier import detect_degree_requirement
+
+    jobs = CachedJob.query.filter(
+        (CachedJob.degree_required == None) | (CachedJob.degree_required == "")
+    ).all()
+
+    counts = {"PhD": 0, "MS": 0, "BS": 0}
+    details = []
+    for cj in jobs:
+        text = (cj.title or "") + " " + (cj.description or "")
+        deg = detect_degree_requirement(text)
+        cj.degree_required = deg
+        counts[deg] += 1
+        details.append({"company": cj.company, "title": cj.title, "degree": deg})
+
+    db.session.commit()
+
+    # Verify none remain null
+    remaining = CachedJob.query.filter(
+        (CachedJob.degree_required == None) | (CachedJob.degree_required == "")
+    ).count()
+
+    return jsonify({
+        "updated": len(jobs),
+        "counts": counts,
+        "remaining_null": remaining,
+        "details": details,
+    })
+
+
 # ── SSE: stream cover letters one by one ──────────────────
 
 @app.route("/api/generate-cls/stream")
