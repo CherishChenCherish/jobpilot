@@ -681,6 +681,72 @@ def admin_backfill_degree():
     })
 
 
+@app.route("/api/admin/backfill-visa", methods=["POST"])
+def admin_backfill_visa():
+    """One-time: detect visa sponsorship from full job descriptions."""
+    secret = request.headers.get("X-Admin-Secret", "")
+    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    if secret != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    import re as _re
+    import requests as req
+    from verifier import detect_visa_sponsorship
+
+    jobs = CachedJob.query.filter(
+        (CachedJob.visa_sponsorship == None) | (CachedJob.visa_sponsorship == "")
+    ).all()
+
+    counts = {"confirmed": 0, "no_sponsor": 0, "unspecified": 0}
+    details = []
+    for cj in jobs:
+        full_text = (cj.title or "") + " " + (cj.description or "")
+
+        # Try to fetch full description from ATS API
+        if cj.job_board == "greenhouse" and cj.apply_url:
+            m = _re.search(r"greenhouse\.io/([^/]+)/jobs/(\d+)", cj.apply_url)
+            if m:
+                slug, job_id = m.group(1), m.group(2)
+                try:
+                    r = req.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}", timeout=5)
+                    if r.status_code == 200:
+                        content = r.json().get("content", "")
+                        full_text = cj.title + " " + _re.sub(r'<[^>]+>', ' ', content)
+                except Exception:
+                    pass
+        elif cj.job_board == "lever" and cj.apply_url:
+            try:
+                # Lever posting API
+                r = req.get(cj.apply_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+                if r.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(r.text, "lxml")
+                    for tag in soup(["script", "style", "nav", "footer"]):
+                        tag.decompose()
+                    full_text = cj.title + " " + soup.get_text(" ", strip=True)
+            except Exception:
+                pass
+
+        visa = detect_visa_sponsorship(full_text)
+        cj.visa_sponsorship = visa
+        counts[visa] += 1
+        if visa != "unspecified":
+            details.append({"company": cj.company, "title": cj.title, "visa": visa})
+
+    db.session.commit()
+
+    remaining = CachedJob.query.filter(
+        (CachedJob.visa_sponsorship == None) | (CachedJob.visa_sponsorship == "")
+    ).count()
+
+    return jsonify({
+        "updated": len(jobs),
+        "counts": counts,
+        "remaining_null": remaining,
+        "details": details,
+    })
+
+
 # ── SSE: stream cover letters one by one ──────────────────
 
 @app.route("/api/generate-cls/stream")

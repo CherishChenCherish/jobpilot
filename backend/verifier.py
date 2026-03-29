@@ -302,6 +302,23 @@ def _check_visa(text: str) -> str:
     return "unspecified"
 
 
+def detect_visa_sponsorship(text: str) -> str:
+    """Detect visa sponsorship from job text (title + description).
+
+    Returns: "no_sponsor", "confirmed", or "unspecified".
+    Used at storage time to populate visa_sponsorship on CachedJob.
+    """
+    text_lower = text.lower()
+    # Check no-sponsor first (more definitive)
+    for phrase in NO_SPONSOR:
+        if phrase in text_lower:
+            return "no_sponsor"
+    for phrase in YES_SPONSOR:
+        if phrase in text_lower:
+            return "confirmed"
+    return "unspecified"
+
+
 # ══════════════════════════════════════════════════════════
 # Main: verify one job
 # ══════════════════════════════════════════════════════════

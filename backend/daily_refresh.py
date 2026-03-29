@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from models import db, CachedJob
 from models import PendingDiscovery
 from searcher import search_jobs, GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, _ts_to_date, infer_region
-from verifier import verify_one, detect_degree_requirement
+from verifier import verify_one, detect_degree_requirement, detect_visa_sponsorship
 
 
 def daily_refresh():
@@ -154,8 +154,12 @@ def daily_refresh():
                 if not (audit.get("status", "").startswith("\u2713") and audit.get("confidence") == "high"):
                     continue
 
-                snippet = _extract_snippet(job.get("content", ""))
-                degree_req = detect_degree_requirement(title + " " + snippet)
+                full_content = job.get("content", "")
+                snippet = _extract_snippet(full_content)
+                # Use full content for detection (visa info is often at the bottom)
+                full_text = re.sub(r'<[^>]+>', ' ', full_content).strip()
+                degree_req = detect_degree_requirement(title + " " + full_text)
+                visa = detect_visa_sponsorship(title + " " + full_text)
                 region = infer_region(loc)
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
@@ -163,6 +167,7 @@ def daily_refresh():
                     location=loc, remote="remote" in loc_lower,
                     status="open", confidence="high", ghost_risk="low",
                     description=snippet, degree_required=degree_req,
+                    visa_sponsorship=visa,
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
@@ -215,8 +220,10 @@ def daily_refresh():
                 if not (audit.get("status", "").startswith("\u2713") and audit.get("confidence") == "high"):
                     continue
 
-                desc = job.get("descriptionPlain", "")[:300]
-                degree_req = detect_degree_requirement(title + " " + desc)
+                full_desc = job.get("descriptionPlain", "")
+                desc = full_desc[:300]
+                degree_req = detect_degree_requirement(title + " " + full_desc)
+                visa = detect_visa_sponsorship(title + " " + full_desc)
                 region = infer_region(str(loc))
                 cj = CachedJob(
                     company=slug.replace("-", " ").title(),
@@ -224,6 +231,7 @@ def daily_refresh():
                     location=str(loc), remote="remote" in loc_lower,
                     status="open", confidence="high", ghost_risk="low",
                     description=desc, degree_required=degree_req,
+                    visa_sponsorship=visa,
                     recommended_cv="V1-DS",
                     categories=categories,
                     company_size="mid", is_active=True,
@@ -253,12 +261,13 @@ def daily_refresh():
                     if CachedJob.query.filter_by(apply_url=job_data["apply_url"]).first():
                         continue
                     degree_req = detect_degree_requirement(job_data["title"])
+                    visa = detect_visa_sponsorship(job_data["title"])
                     cj = CachedJob(
                         company=job_data["company"], title=job_data["title"],
                         apply_url=job_data["apply_url"], job_board="web_discovery",
                         location=job_data["location"], remote=False,
                         status="open", confidence=job_data["confidence"],
-                        degree_required=degree_req,
+                        degree_required=degree_req, visa_sponsorship=visa,
                         region=job_data["region"], language=job_data["language"],
                         discovery_source="web_discovery",
                         is_active=True, last_verified_at=now,
