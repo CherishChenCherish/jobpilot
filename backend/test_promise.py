@@ -200,27 +200,40 @@ class TestIdentity:
             _job(title="PhD Research Intern"), _prefs(degree_level="PhD"))
         assert ok
 
-    # Visa — unknown is not yes
+    # Visa — only explicit "no sponsor" is blocked.
+    # Unspecified passes because most large tech companies sponsor F-1.
     def test_visa_needed_confirmed_passes(self):
         ok, _ = passes_core_promise(
             _job(visa="confirmed"), _prefs(visa_needed=True))
         assert ok
 
-    def test_visa_needed_unspecified_fails(self):
-        ok, reason = passes_core_promise(
+    def test_visa_needed_unspecified_passes(self):
+        """Unspecified visa should pass — most companies sponsor F-1."""
+        ok, _ = passes_core_promise(
             _job(visa="unspecified"), _prefs(visa_needed=True))
-        assert not ok
-        assert "visa_not_confirmed" in reason
+        assert ok
 
     def test_visa_needed_no_sponsor_fails(self):
         ok, reason = passes_core_promise(
             _job(visa="no_sponsor"), _prefs(visa_needed=True))
         assert not ok
-        assert "visa_not_confirmed" in reason
+        assert "no_visa_sponsorship" in reason
+
+    def test_visa_needed_explicit_no_fails(self):
+        ok, reason = passes_core_promise(
+            _job(visa="no"), _prefs(visa_needed=True))
+        assert not ok
+        assert "no_visa_sponsorship" in reason
 
     def test_visa_not_needed_unspecified_passes(self):
         ok, _ = passes_core_promise(
             _job(visa="unspecified"), _prefs(visa_needed=False))
+        assert ok
+
+    def test_visa_not_needed_no_sponsor_passes(self):
+        """Non-visa user should see all jobs regardless of visa status."""
+        ok, _ = passes_core_promise(
+            _job(visa="no_sponsor"), _prefs(visa_needed=False))
         assert ok
 
 

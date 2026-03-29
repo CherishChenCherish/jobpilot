@@ -103,18 +103,19 @@ def passes_core_promise(job: dict, user_prefs: dict) -> tuple[bool, str]:
     if phd_title and user_rank < 3:
         return False, f"phd_in_title: '{job.get('title')}' user_degree={user_degree} ({company})"
 
-    # 4c: Visa — if user needs sponsorship, unknown is not yes
+    # 4c: Visa — only block jobs that explicitly say NO sponsorship.
+    # Our users are F-1 MS students (Yale/MIT/CMU). Most large tech companies
+    # sponsor F-1 OPT/CPT but don't state it in every posting. Treating
+    # "unspecified" as rejection loses nearly all jobs and shows F-1 users
+    # zero results. Only explicit "no sponsorship" language is a real signal.
     visa_needed = user_prefs.get("visa_needed", False)
     visa_status = (job.get("visa_sponsorship") or "").lower()
-    # Also check audit.visa for live-search jobs
     if not visa_status:
         visa_status = (audit.get("visa") or "").lower()
 
     if visa_needed:
-        # Only pass if visa is explicitly confirmed
-        if visa_status not in ("confirmed", "visa sponsorship", "yes", "available"):
-            # "unspecified" and "no_sponsor" both fail
-            return False, f"visa_not_confirmed: visa={visa_status} ({company})"
+        if visa_status in ("no_sponsor", "no"):
+            return False, f"no_visa_sponsorship: visa={visa_status} ({company})"
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CONDITION 2: LOCATION MATCH
