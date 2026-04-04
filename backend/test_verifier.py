@@ -40,15 +40,23 @@ def _print_audit(job):
     print(f"    Manual check: {a.get('needs_manual_check')}")
 
 
-# ── URL 1: Known-open Greenhouse job (Flagship Pioneering) ─
+# ── URL 1: Greenhouse job verification (mocked API) ─────────
 def test_greenhouse_open():
+    from unittest.mock import patch, Mock
     job = {
         "title": "AI Research Scientist Intern (Summer 2026)",
         "company": "Flagship Pioneering",
         "apply_url": "https://boards.greenhouse.io/flagshippioneeringinc/jobs/8373309002",
         "job_board": "greenhouse",
     }
-    result = verify_one(job, PROFILE, PREFS)
+    mock_resp = Mock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"title": "AI Research Scientist Intern (Summer 2026)"}
+    mock_resp.text = '{"title": "AI Research Scientist Intern (Summer 2026)"}'
+    mock_resp.headers = {"Content-Type": "application/json"}
+
+    with patch("verifier.requests.get", return_value=mock_resp):
+        result = verify_one(job, PROFILE, PREFS)
     _print_audit(result)
     a = result["audit"]
     assert a["status"] == "✓ Open", f"Expected Open, got {a['status']}"

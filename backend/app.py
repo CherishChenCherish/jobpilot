@@ -516,7 +516,7 @@ def _serialize_job(job: dict) -> dict:
 @app.route("/api/admin/migrate", methods=["POST"])
 def admin_migrate():
     secret = request.headers.get("X-Admin-Secret", "")
-    if secret != os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET"):
+    if secret != os.getenv("ADMIN_SECRET", ""):
         return jsonify({"error": "Unauthorized"}), 401
 
     from sqlalchemy import text
@@ -617,7 +617,7 @@ def export_direct():
 def admin_wipe():
     """Nuclear option: wipe all cached jobs and re-seed from scratch."""
     secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    expected = os.getenv("ADMIN_SECRET", "")
     if secret != expected:
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -635,7 +635,7 @@ def admin_wipe():
 @app.route("/api/admin/daily-refresh", methods=["POST"])
 def admin_daily_refresh():
     secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    expected = os.getenv("ADMIN_SECRET", "")
     if secret != expected:
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -647,7 +647,7 @@ def admin_daily_refresh():
 def admin_backfill_degree():
     """One-time: populate degree_required for all existing jobs."""
     secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    expected = os.getenv("ADMIN_SECRET", "")
     if secret != expected:
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -685,7 +685,7 @@ def admin_backfill_degree():
 def admin_backfill_visa():
     """One-time: detect visa sponsorship from full job descriptions."""
     secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "REDACTED_ADMIN_SECRET")
+    expected = os.getenv("ADMIN_SECRET", "")
     if secret != expected:
         return jsonify({"error": "Unauthorized"}), 401
 

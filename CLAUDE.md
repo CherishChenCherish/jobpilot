@@ -61,7 +61,7 @@ No other bug takes priority over these four.
 - Regions supported: US, UK, CA, AU, HK, CN (6 total)
 - Daily refresh: GitHub Actions cron, working
 - Cover letters: generating on-demand, quality 5-6/6
-- Stripe: LIVE — sk_live key configured, REDACTED_STRIPE_PRICE_ID
+- Stripe: LIVE — sk_live key configured (price ID in Railway env vars)
 - Auth: Google OAuth working
 - Search speed: <1s from cache
 - Pending discovery: warm cache for empty regions
