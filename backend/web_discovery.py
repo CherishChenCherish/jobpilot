@@ -2,16 +2,21 @@
 
 Uses DuckDuckGo HTML search (no API key needed).
 Every job must pass verification before storage.
+Powered by Scrapling for anti-bot bypass and fast parsing.
 """
 
 import re
 import time
-import requests
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urlparse, parse_qs, unquote
+
+from scrapling import Fetcher
 
 from models import CachedJob
 from verifier import verify_one
 from searcher import infer_region
+
+# Reusable fetcher with realistic browser fingerprint
+_fetcher = Fetcher()
 
 # ── Aggregator domains to skip ────────────────────────────
 
@@ -25,9 +30,6 @@ AGGREGATORS = {
     "adzuna.com", "jora.com", "neuvoo.com", "talent.com",
 }
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-}
 
 # ── Query generation ──────────────────────────────────────
 
@@ -83,17 +85,32 @@ def _build_queries(regions: list, directions: list) -> list[tuple[str, str]]:
 # ── DuckDuckGo search ─────────────────────────────────────
 
 def _search_ddg(query: str, max_results: int = 10) -> list[str]:
-    """Search DuckDuckGo HTML and extract URLs."""
+    """Search DuckDuckGo HTML and extract URLs via Scrapling."""
     try:
         url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        if r.status_code != 200:
+        page = _fetcher.get(url, timeout=10)
+        if page.status != 200:
             return []
 
-        # Extract result URLs
-        urls = re.findall(r'href="(https?://[^"]+)"', r.text)
+        # Extract result links — DDG wraps them as //duckduckgo.com/l/?uddg=<encoded>
+        links = page.css("a.result__a")
+        urls = []
+        for link in links:
+            href = link.attrib.get("href", "")
+            if "uddg=" in href:
+                parsed_href = urlparse(href)
+                real = parse_qs(parsed_href.query).get("uddg", [""])[0]
+                if real:
+                    urls.append(unquote(real))
+            elif href.startswith("http"):
+                urls.append(href)
 
-        # Filter out DuckDuckGo internal URLs
+        # Fallback: regex on raw HTML
+        if not urls:
+            for match in re.findall(r'uddg=([^&"]+)', page.html_content):
+                urls.append(unquote(match))
+
+        # Filter out DuckDuckGo internal URLs and aggregators
         filtered = []
         for u in urls:
             parsed = urlparse(u)
@@ -109,7 +126,6 @@ def _search_ddg(query: str, max_results: int = 10) -> list[str]:
             if any(s in domain or s in path for s in career_signals):
                 filtered.append(u)
             elif len(filtered) < 3:
-                # Also keep first few non-aggregator results
                 filtered.append(u)
 
         return filtered[:max_results]
@@ -121,44 +137,43 @@ def _search_ddg(query: str, max_results: int = 10) -> list[str]:
 # ── Job extraction from page ──────────────────────────────
 
 def _extract_job_from_url(url: str, target_region: str) -> dict | None:
-    """Fetch a URL and try to extract job info."""
+    """Fetch a URL and try to extract job info via Scrapling."""
     try:
-        r = requests.get(url, headers=HEADERS, timeout=8, allow_redirects=True)
-        if r.status_code != 200:
+        page = _fetcher.get(url, timeout=8, follow_redirects=True)
+        if page.status != 200:
             return None
-        if "captcha" in r.text.lower() or "login" in r.url.lower():
+        html_lower = page.html_content.lower() if page.html_content else ""
+        if "captcha" in html_lower or "login" in page.url.lower():
             return None
 
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(r.text, "lxml")
+        # Extract title — og:title preferred, then <title>
+        title = ""
+        og_titles = page.css('meta[property="og:title"]')
+        if og_titles:
+            title = (og_titles[0].attrib.get("content") or "")[:120]
+        if not title:
+            title_tags = page.css("title")
+            title = (title_tags[0].text or "")[:120] if title_tags else ""
 
-        # Extract title
-        title_tag = soup.find("title")
-        title = title_tag.get_text(strip=True)[:120] if title_tag else ""
-        og_title = soup.find("meta", property="og:title")
-        if og_title:
-            title = og_title.get("content", title)[:120]
-
-        # Extract company
+        # Extract company — og:site_name, then domain
         company = ""
-        og_site = soup.find("meta", property="og:site_name")
-        if og_site:
-            company = og_site.get("content", "")[:60]
+        og_sites = page.css('meta[property="og:site_name"]')
+        if og_sites:
+            company = (og_sites[0].attrib.get("content") or "")[:60]
         if not company:
-            # Try domain name
             company = urlparse(url).netloc.replace("www.", "").split(".")[0].title()
 
-        # Location
+        # Location — geo meta tags, then page text scan
         location = ""
         for meta_name in ["geo.region", "geo.placename"]:
-            tag = soup.find("meta", attrs={"name": meta_name})
-            if tag:
-                location = tag.get("content", "")
+            tags = page.css(f'meta[name="{meta_name}"]')
+            if tags:
+                location = tags[0].attrib.get("content", "")
                 break
 
         if not location:
-            # Try to find location in page text
-            text = soup.get_text(" ", strip=True)[:2000].lower()
+            all_text = page.get_all_text() or ""
+            text = all_text[:2000].lower()
             from searcher import REGION_MAP_CITIES
             for region_code, signals in REGION_MAP_CITIES.items():
                 for s in signals:
@@ -172,7 +187,7 @@ def _extract_job_from_url(url: str, target_region: str) -> dict | None:
             "title": title,
             "company": company,
             "location": location or target_region,
-            "apply_url": r.url,  # Use final URL after redirects
+            "apply_url": page.url,  # Final URL after redirects
         }
     except Exception:
         return None
@@ -222,7 +237,7 @@ def discover_jobs(regions: list, directions: list, max_per_combination: int = 10
             if u not in all_urls:
                 all_urls.add(u)
                 url_region_map[u] = region
-        time.sleep(2.5)  # Rate limit
+        time.sleep(1.0)  # Rate limit (reduced — Scrapling has better fingerprinting)
 
     print(f"[discovery] Found {len(all_urls)} candidate URLs")
 
@@ -280,7 +295,7 @@ def discover_jobs(regions: list, directions: list, max_per_combination: int = 10
         })
         print(f"  VERIFIED [{region}]: {job['company']} — {job['title'][:40]}")
 
-        time.sleep(2)  # Rate limit
+        time.sleep(1.0)  # Rate limit
 
         if len(verified) >= max_per_combination * len(regions):
             break
