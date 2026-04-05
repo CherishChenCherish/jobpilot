@@ -115,10 +115,10 @@ GREENHOUSE_COMPANIES = {
 
 # Region inference from location
 REGION_MAP_CITIES = {
-    "US": ["united states", "new york", "san francisco", "seattle", "boston", "chicago",
-           "los angeles", "austin", "denver", "remote", " ca", " wa", " ny", " ma", " tx",
-           " il", " co", " ct", " pa", " or", " ga", " nc", " mn"],
     "CA": ["canada", "toronto", "montreal", "vancouver", "ottawa", "kitchener", "waterloo", "calgary"],
+    "US": ["united states", "new york", "san francisco", "seattle", "boston", "chicago",
+           "los angeles", "austin", "denver", "remote", ", ca", " wa", " ny", " ma", " tx",
+           " il", " co", " ct", " pa", " or", " ga", " nc", " mn"],
     "UK": ["united kingdom", "london", "manchester", "cambridge", "edinburgh", "oxford", " uk"],
     "AU": ["australia", "sydney", "melbourne", "brisbane", "perth"],
     "HK": ["hong kong", " hk"],
