@@ -7,11 +7,9 @@ Every job must pass verification before storage.
 import re
 import time
 import requests
-from typing import Any
-from datetime import datetime, timezone
 from urllib.parse import quote_plus, urlparse
 
-from models import db, CachedJob
+from models import CachedJob
 from verifier import verify_one
 from searcher import infer_region
 

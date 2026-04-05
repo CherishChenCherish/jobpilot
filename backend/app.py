@@ -4,11 +4,16 @@ import json
 import os
 from datetime import datetime, timezone
 
+import logging
+from functools import wraps
+
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+
+logger = logging.getLogger(__name__)
 
 from models import db, User, Search, Subscription, CachedJob, PendingDiscovery
 from parser import parse_resume, ParseError
@@ -41,6 +46,17 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["60 per minute"],
                   storage_uri="memory://")
 
 FREE_SEARCH_LIMIT = 3
+
+
+def require_admin(f):
+    """Decorator that checks X-Admin-Secret header against ADMIN_SECRET env var."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        secret = request.headers.get("X-Admin-Secret", "")
+        if secret != os.getenv("ADMIN_SECRET", ""):
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 
 # ── Helpers ────────────────────────────────────────────────
@@ -279,7 +295,7 @@ def search_route():
 
     # ── Try cache first (instant, <2s) ──────────────────
     cached_count = CachedJob.query.filter_by(is_active=True).count()
-    print(f"[search] Cache has {cached_count} active jobs, regions={selected_regions}")
+    logger.info("[search] Cache has %d active jobs, regions=%s", cached_count, selected_regions)
 
     if cached_count >= 3:
         # Query from cache — instant, filtered by region
@@ -343,7 +359,7 @@ def search_route():
         }
         result_jobs, promise_rejected = filter_by_promise(candidate_jobs, promise_prefs)
         result_jobs = result_jobs[:15]
-        print(f"[search] Returning {len(result_jobs)} jobs from cache (instant)")
+        logger.info("[search] Returning %d jobs from cache (instant)", len(result_jobs))
 
         warming = False
         if len(result_jobs) < 3:
@@ -358,7 +374,7 @@ def search_route():
                 task = PendingDiscovery(regions=selected_regions, directions=directions)
                 db.session.add(task)
                 db.session.commit()
-                print(f"[search] Created pending discovery: {selected_regions} x {directions}")
+                logger.info("[search] Created pending discovery: %s x %s", selected_regions, directions)
 
         audit_summary = {
             "jobs_searched": cached_count, "jobs_verified": len(result_jobs),
@@ -370,7 +386,7 @@ def search_route():
         }
     else:
         # ── Fallback: live search + verify (<20s) ──────────
-        print(f"[search] Cache empty ({cached_count}), falling back to live search")
+        logger.info("[search] Cache empty (%d), falling back to live search", cached_count)
         all_jobs = run_search(profile, prefs)
 
         if not all_jobs:
@@ -455,7 +471,7 @@ def generate_cls_route():
     results = []
     errors = []
 
-    print(f"[cls] Generating {cl_target} cover letters...")
+    logger.info("[cls] Generating %d cover letters...", cl_target)
     for i, job in enumerate(jobs[:cl_target]):
         company = job.get("company", "?")
         try:
@@ -465,7 +481,7 @@ def generate_cls_route():
                 "company": company,
                 "cover_letter": cl,
             })
-            print(f"  CL {i+1}/{cl_target}: {company} — {cl.get('score', 0)}/{cl.get('max_score', 6)}")
+            logger.info("  CL %d/%d: %s — %s/%s", i+1, cl_target, company, cl.get('score', 0), cl.get('max_score', 6))
         except Exception as e:
             results.append({
                 "index": i,
@@ -479,7 +495,10 @@ def generate_cls_route():
             errors.append(f"CL failed for {company}: {str(e)[:60]}")
 
     scores = [r["cover_letter"]["score"] for r in results if r["cover_letter"].get("text")]
-    print(f"[cls] Done: {len(scores)} generated, avg {sum(scores)/len(scores):.1f}" if scores else "[cls] Done: 0 generated")
+    if scores:
+        logger.info("[cls] Done: %d generated, avg %.1f", len(scores), sum(scores)/len(scores))
+    else:
+        logger.info("[cls] Done: 0 generated")
 
     return jsonify({
         "cover_letters": results,
@@ -514,11 +533,8 @@ def _serialize_job(job: dict) -> dict:
 # ── Admin: run migration for new columns ─────────────────
 
 @app.route("/api/admin/migrate", methods=["POST"])
+@require_admin
 def admin_migrate():
-    secret = request.headers.get("X-Admin-Secret", "")
-    if secret != os.getenv("ADMIN_SECRET", ""):
-        return jsonify({"error": "Unauthorized"}), 401
-
     from sqlalchemy import text
     results = []
     # Add new columns to cached_jobs if they don't exist
@@ -614,17 +630,13 @@ def export_direct():
 # ── Admin: daily refresh ───────────────────────────────────
 
 @app.route("/api/admin/wipe-and-reseed", methods=["POST"])
+@require_admin
 def admin_wipe():
     """Nuclear option: wipe all cached jobs and re-seed from scratch."""
-    secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "")
-    if secret != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-
     # Wipe everything
     count = CachedJob.query.delete()
     db.session.commit()
-    print(f"[admin] Wiped {count} cached jobs")
+    logger.info("[admin] Wiped %d cached jobs", count)
 
     # Re-seed
     log = daily_refresh()
@@ -633,24 +645,16 @@ def admin_wipe():
 
 
 @app.route("/api/admin/daily-refresh", methods=["POST"])
+@require_admin
 def admin_daily_refresh():
-    secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "")
-    if secret != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-
     log = daily_refresh()
     return jsonify(log)
 
 
 @app.route("/api/admin/backfill-degree", methods=["POST"])
+@require_admin
 def admin_backfill_degree():
     """One-time: populate degree_required for all existing jobs."""
-    secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "")
-    if secret != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-
     from verifier import detect_degree_requirement
 
     jobs = CachedJob.query.filter(
@@ -682,13 +686,9 @@ def admin_backfill_degree():
 
 
 @app.route("/api/admin/backfill-visa", methods=["POST"])
+@require_admin
 def admin_backfill_visa():
     """One-time: detect visa sponsorship from full job descriptions."""
-    secret = request.headers.get("X-Admin-Secret", "")
-    expected = os.getenv("ADMIN_SECRET", "")
-    if secret != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-
     import re as _re
     import requests as req
     from verifier import detect_visa_sponsorship
@@ -881,7 +881,7 @@ try:
     with app.app_context():
         db.create_all()
 except Exception as e:
-    print(f"[startup] db.create_all warning: {e}")
+    logger.warning("[startup] db.create_all warning: %s", e)
 
 # ── Run ────────────────────────────────────────────────────
 

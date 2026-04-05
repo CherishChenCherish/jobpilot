@@ -1,7 +1,7 @@
 """JobPilot Excel exporter — 4-sheet professional output."""
 
 import io
-from datetime import datetime, timezone
+from datetime import datetime
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side

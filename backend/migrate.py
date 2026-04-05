@@ -1,6 +1,5 @@
 """Create all database tables. Run: python migrate.py"""
 
-import os
 from dotenv import load_dotenv
 
 load_dotenv()

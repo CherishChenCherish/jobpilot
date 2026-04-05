@@ -11,8 +11,6 @@ Key improvements over v1:
 
 import re
 import time
-from typing import Any
-
 import requests
 from dotenv import load_dotenv
 

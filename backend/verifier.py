@@ -18,7 +18,6 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any
 from urllib.parse import urlparse
 
 import requests

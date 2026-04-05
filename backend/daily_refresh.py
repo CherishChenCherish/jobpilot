@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from models import db, CachedJob
 from models import PendingDiscovery
-from searcher import search_jobs, GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, _ts_to_date, infer_region
+from searcher import GREENHOUSE_COMPANIES, LEVER_COMPANIES, _fetch_greenhouse, _fetch_lever, _extract_snippet, infer_region
 from verifier import verify_one, detect_degree_requirement, detect_visa_sponsorship
 
 

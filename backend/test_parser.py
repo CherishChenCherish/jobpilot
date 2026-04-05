@@ -2,7 +2,6 @@
 
 import os
 import sys
-import json
 from pathlib import Path
 
 # Ensure we can import from backend
