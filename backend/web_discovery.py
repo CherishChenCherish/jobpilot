@@ -266,6 +266,13 @@ def discover_jobs(regions: list, directions: list, max_per_combination: int = 10
 
         processed += 1
         region = infer_region(job["location"])
+
+        # Region mismatch: skip jobs outside the target region
+        # infer_region defaults to "US" when uncertain, so allow that through
+        if region != target_region and region != "US":
+            print(f"  SKIP region mismatch: {job['company']} — {region} ≠ {target_region}")
+            continue
+
         is_cn = (region == "CN" or target_region == "CN")
 
         # Verify
@@ -288,7 +295,7 @@ def discover_jobs(regions: list, directions: list, max_per_combination: int = 10
             "title": job["title"],
             "apply_url": job["apply_url"],
             "location": job["location"],
-            "region": region if region != "US" else target_region,
+            "region": target_region,
             "language": "CN" if is_cn else "EN",
             "confidence": confidence,
             "discovery_source": "web_discovery",
