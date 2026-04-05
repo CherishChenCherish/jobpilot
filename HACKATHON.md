@@ -49,7 +49,7 @@ I'm submitting **JobPilot** — an AI-powered job search platform built specific
 
 JobPilot parses your resume, searches real job boards via Greenhouse and Lever APIs, **verifies every listing is still open with live API calls** (no stale postings), filters by visa sponsorship/degree/location, and generates tailored cover letters using Claude AI — all in one workflow.
 
-**Tech stack:** Next.js frontend on Vercel, Flask backend on Railway, Stripe payments, Claude API for resume parsing + cover letter generation, PostgreSQL, and live API integration with 6 regional Greenhouse/Lever endpoints.
+**Tech stack:** Next.js frontend on Vercel, Flask backend on Railway, Stripe payments, Claude API for resume parsing + cover letter generation, Scrapling-powered web discovery with anti-bot bypass, PostgreSQL, and live API integration with 6 regional Greenhouse/Lever endpoints.
 
 It's a live SaaS product with paying users, not a hackathon prototype. Looking forward to seeing what TestSprite finds under the hood!
 
