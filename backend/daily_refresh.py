@@ -66,6 +66,14 @@ def daily_refresh():
             cj.is_active = False
             log["cleaned"] += 1
 
+    # Region mismatch cleanup for web_discovery jobs
+    for cj in CachedJob.query.filter_by(is_active=True, discovery_source="web_discovery").all():
+        inferred = infer_region(cj.location or "")
+        if inferred != cj.region and inferred != "US":
+            print(f"[refresh] Region mismatch: {cj.company} — location '{cj.location}' → {inferred} ≠ stored {cj.region}")
+            cj.is_active = False
+            log["cleaned"] += 1
+
     db.session.commit()
     if log["cleaned"]:
         print(f"[refresh] Cleaned {log['cleaned']} bad entries")
