@@ -747,6 +747,23 @@ def admin_backfill_visa():
     })
 
 
+@app.route("/api/admin/fix-regions", methods=["POST"])
+@require_admin
+def admin_fix_regions():
+    """Re-infer region for all cached jobs using updated REGION_MAP_CITIES."""
+    from searcher import infer_region
+    jobs = CachedJob.query.filter_by(is_active=True).all()
+    fixed = []
+    for cj in jobs:
+        new_region = infer_region(cj.location or "")
+        if new_region != cj.region:
+            fixed.append({"company": cj.company, "location": cj.location,
+                          "old": cj.region, "new": new_region})
+            cj.region = new_region
+    db.session.commit()
+    return jsonify({"total": len(jobs), "fixed": len(fixed), "details": fixed})
+
+
 # ── SSE: stream cover letters one by one ──────────────────
 
 @app.route("/api/generate-cls/stream")
