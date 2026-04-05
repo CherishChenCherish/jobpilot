@@ -9,14 +9,24 @@ import re
 import time
 from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 
-from scrapling import Fetcher
-
 from models import CachedJob
 from verifier import verify_one
 from searcher import infer_region
 
-# Reusable fetcher with realistic browser fingerprint
-_fetcher = Fetcher()
+# Try Scrapling first; fall back to requests+BS4
+try:
+    from scrapling import Fetcher
+    _fetcher = Fetcher()
+    _USE_SCRAPLING = True
+except ImportError:
+    _fetcher = None
+    _USE_SCRAPLING = False
+    import requests as _requests
+    from bs4 import BeautifulSoup as _BS4
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+}
 
 # ── Aggregator domains to skip ────────────────────────────
 
@@ -85,30 +95,39 @@ def _build_queries(regions: list, directions: list) -> list[tuple[str, str]]:
 # ── DuckDuckGo search ─────────────────────────────────────
 
 def _search_ddg(query: str, max_results: int = 10) -> list[str]:
-    """Search DuckDuckGo HTML and extract URLs via Scrapling."""
+    """Search DuckDuckGo HTML and extract URLs."""
     try:
         url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-        page = _fetcher.get(url, timeout=10)
-        if page.status != 200:
-            return []
 
-        # Extract result links — DDG wraps them as //duckduckgo.com/l/?uddg=<encoded>
-        links = page.css("a.result__a")
-        urls = []
-        for link in links:
-            href = link.attrib.get("href", "")
-            if "uddg=" in href:
-                parsed_href = urlparse(href)
-                real = parse_qs(parsed_href.query).get("uddg", [""])[0]
-                if real:
-                    urls.append(unquote(real))
-            elif href.startswith("http"):
-                urls.append(href)
-
-        # Fallback: regex on raw HTML
-        if not urls:
-            for match in re.findall(r'uddg=([^&"]+)', page.html_content):
+        if _USE_SCRAPLING:
+            page = _fetcher.get(url, timeout=10)
+            if page.status != 200:
+                return []
+            # Extract result links — DDG wraps them as //duckduckgo.com/l/?uddg=<encoded>
+            links = page.css("a.result__a")
+            urls = []
+            for link in links:
+                href = link.attrib.get("href", "")
+                if "uddg=" in href:
+                    parsed_href = urlparse(href)
+                    real = parse_qs(parsed_href.query).get("uddg", [""])[0]
+                    if real:
+                        urls.append(unquote(real))
+                elif href.startswith("http"):
+                    urls.append(href)
+            # Fallback: regex on raw HTML
+            if not urls:
+                for match in re.findall(r'uddg=([^&"]+)', page.html_content):
+                    urls.append(unquote(match))
+        else:
+            r = _requests.get(url, headers=HEADERS, timeout=10)
+            if r.status_code != 200:
+                return []
+            urls = []
+            for match in re.findall(r'uddg=([^&"]+)', r.text):
                 urls.append(unquote(match))
+            if not urls:
+                urls = re.findall(r'href="(https?://[^"]+)"', r.text)
 
         # Filter out DuckDuckGo internal URLs and aggregators
         filtered = []
@@ -139,45 +158,77 @@ def _search_ddg(query: str, max_results: int = 10) -> list[str]:
 def _extract_job_from_url(url: str, target_region: str) -> dict | None:
     """Fetch a URL and try to extract job info via Scrapling."""
     try:
-        page = _fetcher.get(url, timeout=8, follow_redirects=True)
-        if page.status != 200:
-            return None
-        html_lower = page.html_content.lower() if page.html_content else ""
-        if "captcha" in html_lower or "login" in page.url.lower():
-            return None
+        if _USE_SCRAPLING:
+            page = _fetcher.get(url, timeout=8, follow_redirects=True)
+            if page.status != 200:
+                return None
+            html_lower = page.html_content.lower() if page.html_content else ""
+            final_url = page.url
+            if "captcha" in html_lower or "login" in final_url.lower():
+                return None
 
-        # Extract title — og:title preferred, then <title>
-        title = ""
-        og_titles = page.css('meta[property="og:title"]')
-        if og_titles:
-            title = (og_titles[0].attrib.get("content") or "")[:120]
-        if not title:
-            title_tags = page.css("title")
-            title = (title_tags[0].text or "")[:120] if title_tags else ""
+            title = ""
+            og_titles = page.css('meta[property="og:title"]')
+            if og_titles:
+                title = (og_titles[0].attrib.get("content") or "")[:120]
+            if not title:
+                title_tags = page.css("title")
+                title = (title_tags[0].text or "")[:120] if title_tags else ""
 
-        # Extract company — og:site_name, then domain
-        company = ""
-        og_sites = page.css('meta[property="og:site_name"]')
-        if og_sites:
-            company = (og_sites[0].attrib.get("content") or "")[:60]
+            company = ""
+            og_sites = page.css('meta[property="og:site_name"]')
+            if og_sites:
+                company = (og_sites[0].attrib.get("content") or "")[:60]
+
+            location = ""
+            for meta_name in ["geo.region", "geo.placename"]:
+                tags = page.css(f'meta[name="{meta_name}"]')
+                if tags:
+                    location = tags[0].attrib.get("content", "")
+                    break
+            if not location:
+                all_text = page.get_all_text() or ""
+                page_text = all_text[:2000].lower()
+        else:
+            r = _requests.get(url, headers=HEADERS, timeout=8, allow_redirects=True)
+            if r.status_code != 200:
+                return None
+            html_lower = r.text.lower()
+            final_url = r.url
+            if "captcha" in html_lower or "login" in final_url.lower():
+                return None
+
+            soup = _BS4(r.text, "lxml")
+            title = ""
+            og_title = soup.find("meta", property="og:title")
+            if og_title:
+                title = (og_title.get("content") or "")[:120]
+            if not title:
+                title_tag = soup.find("title")
+                title = title_tag.get_text(strip=True)[:120] if title_tag else ""
+
+            company = ""
+            og_site = soup.find("meta", property="og:site_name")
+            if og_site:
+                company = (og_site.get("content") or "")[:60]
+
+            location = ""
+            for meta_name in ["geo.region", "geo.placename"]:
+                tag = soup.find("meta", attrs={"name": meta_name})
+                if tag:
+                    location = tag.get("content", "")
+                    break
+            if not location:
+                page_text = soup.get_text(" ", strip=True)[:2000].lower()
+
         if not company:
             company = urlparse(url).netloc.replace("www.", "").split(".")[0].title()
 
-        # Location — geo meta tags, then page text scan
-        location = ""
-        for meta_name in ["geo.region", "geo.placename"]:
-            tags = page.css(f'meta[name="{meta_name}"]')
-            if tags:
-                location = tags[0].attrib.get("content", "")
-                break
-
         if not location:
-            all_text = page.get_all_text() or ""
-            text = all_text[:2000].lower()
             from searcher import REGION_MAP_CITIES
             for region_code, signals in REGION_MAP_CITIES.items():
                 for s in signals:
-                    if s in text:
+                    if s in page_text:
                         location = s.title()
                         break
                 if location:
@@ -187,7 +238,7 @@ def _extract_job_from_url(url: str, target_region: str) -> dict | None:
             "title": title,
             "company": company,
             "location": location or target_region,
-            "apply_url": page.url,  # Final URL after redirects
+            "apply_url": final_url,
         }
     except Exception:
         return None
