@@ -26,7 +26,7 @@ International students waste hours applying to jobs that are already closed or d
 | Frontend | Next.js 14, TypeScript, Tailwind CSS |
 | Backend | Flask (Python), SQLAlchemy, PostgreSQL |
 | AI | Claude API (resume parsing + cover letter generation) |
-| Web Discovery | Scrapling (anti-bot fingerprinting + fast HTML parsing) |
+| Web Discovery | Scrapling (preferred) with requests+BS4 fallback |
 | Auth | Google OAuth via NextAuth.js |
 | Payments | Stripe (subscription billing) |
 | Deploy | Vercel (frontend) + Railway (backend) |
@@ -53,7 +53,7 @@ User uploads resume
 ## Key Design Decisions
 
 - **API verification over HTML scraping** — Greenhouse and Lever have public APIs. We check job status at the API level for high-confidence results instead of parsing fragile HTML
-- **Scrapling for web discovery** — DuckDuckGo-based job discovery uses Scrapling for anti-bot fingerprinting and ~780x faster parsing than BeautifulSoup, enabling broader company coverage
+- **Scrapling for web discovery** — DuckDuckGo-based job discovery prefers Scrapling for anti-bot fingerprinting and faster parsing, with automatic fallback to requests+BeautifulSoup if Scrapling is unavailable
 - **Core Promise as a hard gate** — Every job must pass 4 checks (open, location, direction, identity) in `promise.py` before reaching any user. This is enforced as the final filter, not a soft ranking signal
 - **Visa policy: permissive by default** — Most top companies sponsor F-1 OPT/CPT but don't state it. We only block jobs with explicit "no sponsorship" language. Unspecified = show
 - **Degree hierarchy** — PhD users see all jobs. MS users see MS+BS. BS users see BS only. Enforced at both storage and search time
