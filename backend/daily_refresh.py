@@ -252,6 +252,57 @@ def daily_refresh():
 
         db.session.commit()
 
+    # ── Step 4.5: Direct company career APIs (Amazon, Netflix, Nvidia, etc.) ──
+    try:
+        from direct_scraper import fetch_all_direct
+        direct_jobs = fetch_all_direct(max_per_company=30)
+        print(f"[refresh] Direct scraper: {len(direct_jobs)} candidates")
+        for job_data in direct_jobs:
+            if CachedJob.query.filter_by(apply_url=job_data["apply_url"]).first():
+                continue
+            # Verify
+            result = verify_one(job_data, {"degree_level": "Master"}, {"visa_needed": False})
+            audit = result.get("audit", {})
+            if not (audit.get("status", "").startswith("\u2713") and audit.get("confidence") == "high"):
+                continue
+            loc = job_data.get("location", "")
+            degree_req = detect_degree_requirement(job_data["title"])
+            visa = detect_visa_sponsorship(job_data["title"])
+            region = infer_region(loc)
+            # Infer categories from title
+            title_lower = job_data["title"].lower()
+            cats = []
+            cat_signals = {
+                "DS/ML": ["data scien", "machine learn", "ml ", "ai ", "analytics", "algorithm", "deep learn"],
+                "Software Engineering": ["software engineer", "software develop", "backend", "frontend", "full stack", "swe"],
+                "Data Engineering": ["data engineer", "etl", "pipeline"],
+                "Research / NLP": ["research", "nlp", "natural language"],
+                "Quantitative Finance": ["quant", "trading", "financial"],
+            }
+            for cat, signals in cat_signals.items():
+                if any(s in title_lower for s in signals):
+                    cats.append(cat)
+            if not cats:
+                cats = ["DS/ML", "Software Engineering"]
+
+            cj = CachedJob(
+                company=job_data["company"], title=job_data["title"],
+                apply_url=job_data["apply_url"], job_board=job_data.get("job_board", "direct"),
+                location=loc, remote="remote" in loc.lower(),
+                status="open", confidence="high",
+                degree_required=degree_req, visa_sponsorship=visa,
+                categories=cats,
+                region=region, language="EN",
+                discovery_source="direct_api",
+                is_active=True, last_verified_at=now,
+            )
+            db.session.add(cj)
+            log["new_added"] += 1
+            print(f"  NEW [direct] [{region}]: {cj.company} — {cj.title}")
+        db.session.commit()
+    except Exception as e:
+        print(f"[refresh] Direct scraper error: {e}")
+
     # ── Step 5: Web discovery for regions with few jobs ──
     try:
         from web_discovery import discover_jobs as web_discover
