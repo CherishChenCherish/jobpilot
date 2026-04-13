@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "get apihealth returns service status",
+    "description": "Verify GET /api/health returns 200 with a status string indicating the service is up under normal conditions."
+  },
+  {
+    "id": "TC002",
+    "title": "get apidebugtables returns database tables and row counts",
+    "description": "Verify GET /api/debug/tables returns 200 with a JSON object listing database tables and their row counts."
+  },
+  {
+    "id": "TC003",
+    "title": "post apisyncuser upserts user record from google oauth payload",
+    "description": "Verify POST /api/sync-user with valid email, name, and image returns 200 with user id and email, and invalid requests missing email return 400 validation error."
+  },
+  {
+    "id": "TC004",
+    "title": "get apime returns authenticated user profile",
+    "description": "Verify GET /api/me with valid auth returns 200 with full user profile, and without auth returns 401 unauthorized."
+  },
+  {
+    "id": "TC005",
+    "title": "post apiparse parses uploaded resume and returns structured fields",
+    "description": "Verify POST /api/parse with valid PDF or DOCX file and auth returns 200 with extracted skills, degree, direction, and experience; invalid files return 400; and Claude API errors return 500."
+  },
+  {
+    "id": "TC006",
+    "title": "post apisearch returns jobs filtered by core promise",
+    "description": "Verify POST /api/search with valid direction, region, degree, visa_needed and auth returns 200 with jobs passing core promise; invalid region returns 400; no auth returns 401; and jobs failing core promise are filtered out."
+  },
+  {
+    "id": "TC007",
+    "title": "post apigeneratecls generates cover letter for job",
+    "description": "Verify POST /api/generate-cls with valid job_id, resume_text and auth returns 200 with cover letter; invalid job_id returns 400; Claude API errors return 500."
+  },
+  {
+    "id": "TC008",
+    "title": "get apigenerateclsstream streams cover letter generation tokens",
+    "description": "Verify GET /api/generate-cls/stream with valid search_id, job_id and auth returns 200 text/event-stream with incremental tokens; without auth returns 401."
+  },
+  {
+    "id": "TC009",
+    "title": "get apidemoverify verifies job url open status",
+    "description": "Verify GET /api/demo-verify with valid url query returns 200 with verified_open boolean and confidence string; missing url returns 400."
+  },
+  {
+    "id": "TC010",
+    "title": "post apistripecreatecheckout creates stripe checkout session",
+    "description": "Verify POST /api/stripe/create-checkout with auth returns 200 with checkout url; Stripe service errors return 500."
+  }
+]

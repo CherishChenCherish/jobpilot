@@ -1,0 +1,263 @@
+version: "2"
+type: backend
+tech_stack:
+  - Python 3.11
+  - Flask
+  - SQLAlchemy
+  - PostgreSQL (Railway)
+  - Stripe SDK
+  - Anthropic Claude API
+  - Greenhouse / Lever public job APIs
+  - Scrapling + BeautifulSoup4 (web discovery fallback)
+  - Gunicorn (production WSGI)
+  - Flask-CORS
+features:
+  - name: Health and Debug
+    description: Liveness probe and database introspection endpoints used by Railway and ops.
+    files:
+      - backend/app.py
+      - backend/models.py
+    endpoints:
+      - method: GET
+        path: /api/health
+        description: Liveness probe returning service status
+        auth_required: false
+        response_schema:
+          "200": { status: string }
+      - method: GET
+        path: /api/debug/tables
+        description: List database tables and row counts for debugging
+        auth_required: false
+        response_schema:
+          "200": { tables: object }
+    depends_on: []
+
+  - name: User Authentication and Profile
+    description: Syncs Google OAuth users from frontend (NextAuth) into Postgres and returns the current user profile.
+    files:
+      - backend/app.py
+      - backend/models.py
+    endpoints:
+      - method: POST
+        path: /api/sync-user
+        description: Upsert a user record from Google OAuth payload
+        auth_required: false
+        request_schema:
+          body:
+            email: string
+            name: string
+            image: string
+        response_schema:
+          "200": { id: integer, email: string }
+          "400": Validation error
+      - method: GET
+        path: /api/me
+        description: Return the authenticated user profile
+        auth_required: true
+        response_schema:
+          "200": User
+          "401": Unauthorized
+    depends_on: []
+
+  - name: Resume Parsing
+    description: Accepts a PDF/DOCX resume, extracts text, and uses Claude to extract structured fields (skills, degree, experience, direction).
+    files:
+      - backend/app.py
+      - backend/parser.py
+    endpoints:
+      - method: POST
+        path: /api/parse
+        description: Parse uploaded resume and return structured fields
+        auth_required: true
+        request_schema:
+          body:
+            file: multipart/form-data (PDF or DOCX)
+        response_schema:
+          "200":
+            skills: string[]
+            degree: string
+            direction: string
+            experience: string
+          "400": Invalid file
+          "500": Parser error
+    depends_on:
+      - User Authentication and Profile
+
+  - name: Job Search (Promise-Gated)
+    description: Core search endpoint. Queries the verified job cache, applies the four-condition Core Promise gate (open, location, direction, identity/degree/visa), and returns matched jobs.
+    files:
+      - backend/app.py
+      - backend/searcher.py
+      - backend/promise.py
+      - backend/models.py
+    endpoints:
+      - method: POST
+        path: /api/search
+        description: Search verified jobs filtered by user direction, region, degree, and visa needs
+        auth_required: true
+        request_schema:
+          body:
+            direction: string
+            region: string (US|UK|HK|CA|AU|CN)
+            degree: string (BS|MS|PhD)
+            visa_needed: boolean
+        response_schema:
+          "200":
+            jobs: Job[]
+            search_id: integer
+          "400": Validation error
+    depends_on:
+      - User Authentication and Profile
+      - Resume Parsing
+
+  - name: Cover Letter Generation
+    description: Generates a Claude-authored cover letter for a given job and the user's parsed resume. Supports both blocking JSON response and SSE streaming.
+    files:
+      - backend/app.py
+      - backend/generator.py
+    endpoints:
+      - method: POST
+        path: /api/generate-cls
+        description: Generate a cover letter for a job
+        auth_required: true
+        request_schema:
+          body:
+            job_id: integer
+            resume_text: string
+        response_schema:
+          "200": { cover_letter: string }
+          "400": Validation error
+          "500": Claude API error
+      - method: GET
+        path: /api/generate-cls/stream
+        description: SSE stream of cover letter generation tokens
+        auth_required: true
+        request_schema:
+          query:
+            search_id: integer
+            job_id: integer
+        response_schema:
+          "200": text/event-stream
+    depends_on:
+      - Job Search (Promise-Gated)
+
+  - name: Demo Verification
+    description: Public demo endpoint that verifies a single job URL is currently live and accepting applications.
+    files:
+      - backend/app.py
+      - backend/verifier.py
+    endpoints:
+      - method: GET
+        path: /api/demo-verify
+        description: Verify a single job URL is open
+        auth_required: false
+        request_schema:
+          query:
+            url: string
+        response_schema:
+          "200":
+            verified_open: boolean
+            confidence: string
+          "400": Missing URL
+    depends_on: []
+
+  - name: Stripe Payments
+    description: Creates Stripe Checkout sessions for the paid plan and processes webhook events to upgrade users.
+    files:
+      - backend/app.py
+    endpoints:
+      - method: POST
+        path: /api/stripe/create-checkout
+        description: Create a Stripe Checkout session
+        auth_required: true
+        response_schema:
+          "200": { url: string }
+          "500": Stripe error
+      - method: POST
+        path: /api/stripe/webhook
+        description: Stripe webhook receiver for checkout.session.completed events
+        auth_required: false
+        request_schema:
+          headers:
+            Stripe-Signature: string
+          body: raw stripe event payload
+        response_schema:
+          "200": { received: true }
+          "400": Invalid signature
+    depends_on:
+      - User Authentication and Profile
+
+  - name: Search History Export
+    description: Allows users to download a CSV of a previous search and exports a search snapshot directly.
+    files:
+      - backend/app.py
+      - backend/exporter.py
+    endpoints:
+      - method: GET
+        path: /api/download/{search_id}
+        description: Download CSV for a stored search
+        auth_required: true
+        response_schema:
+          "200": text/csv
+          "404": Not found
+      - method: POST
+        path: /api/export-direct
+        description: Export an ad-hoc job list as CSV
+        auth_required: true
+        response_schema:
+          "200": text/csv
+    depends_on:
+      - Job Search (Promise-Gated)
+
+  - name: Admin Maintenance
+    description: Admin-only endpoints (protected by ADMIN_SECRET) used by GitHub Actions and ops to refresh, backfill, and repair the job database.
+    files:
+      - backend/app.py
+      - backend/daily_refresh.py
+      - backend/migrate.py
+    endpoints:
+      - method: POST
+        path: /api/admin/migrate
+        description: Run database migrations
+        auth_required: true
+      - method: POST
+        path: /api/admin/wipe-and-reseed
+        description: Wipe job cache and reseed from sources
+        auth_required: true
+      - method: POST
+        path: /api/admin/daily-refresh
+        description: Trigger daily job refresh from Greenhouse/Lever
+        auth_required: true
+      - method: POST
+        path: /api/admin/backfill-degree
+        description: Backfill degree_required field on existing jobs
+        auth_required: true
+      - method: POST
+        path: /api/admin/backfill-visa
+        description: Backfill visa_sponsorship field on existing jobs
+        auth_required: true
+      - method: POST
+        path: /api/admin/fix-regions
+        description: Repair miscategorized region fields
+        auth_required: true
+    depends_on: []
+
+known_limitations:
+  - issue: ADMIN_SECRET-based admin auth is a shared bearer token; no per-user RBAC
+    location: backend/app.py admin routes
+    impact: Anyone with the secret can wipe/reseed the job database
+  - issue: /api/demo-verify takes an arbitrary URL with no allowlist
+    location: backend/app.py:110 and backend/verifier.py
+    impact: Server-side fetch can be pointed at internal hosts (SSRF risk)
+  - issue: Cover letter generation has no rate limiting per user
+    location: backend/app.py:454 and backend/app.py:769
+    impact: A single user can exhaust Claude API quota / spend
+  - issue: Stripe webhook processing assumes signature verification succeeds before parsing
+    location: backend/app.py:845
+    impact: Bad signature should reject early; double-check ordering
+  - issue: /api/sync-user trusts the email from the request body
+    location: backend/app.py:180
+    impact: Without server-side OAuth verification a caller could impersonate any user
+  - issue: db.create_all() side-effect must run on import for gunicorn
+    location: backend/app.py
+    impact: Refactors that move it inside __main__ silently break production
