@@ -5,165 +5,88 @@
 
 ## 1️⃣ Document Metadata
 - **Project Name:** jobpilot
-- **Date:** 2026-04-12
+- **Date:** 2026-04-15
 - **Prepared by:** TestSprite AI Team
 
 ---
 
 ## 2️⃣ Requirement Validation Summary
 
-#### Test TC001 get apihealth returns service status
-- **Test Code:** [TC001_get_apihealth_returns_service_status.py](./TC001_get_apihealth_returns_service_status.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 20, in <module>
-  File "<string>", line 11, in test_get_api_health_returns_service_status
-AssertionError: Expected status code 200 but got 403
+#### Test TC001 Complete onboarding with profile criteria and a PDF/DOCX resume to reach parsed profile and initial results
+- **Test Code:** [TC001_Complete_onboarding_with_profile_criteria_and_a_PDFDOCX_resume_to_reach_parsed_profile_and_initial_results.py](./TC001_Complete_onboarding_with_profile_criteria_and_a_PDFDOCX_resume_to_reach_parsed_profile_and_initial_results.py)
+- **Test Error:** TEST BLOCKED
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/3bc46ead-0bfb-4c01-a90e-864d7a3c7ca0
-- **Status:** ❌ Failed
+The login page could not be reached — the /login route returns a 404, so I cannot sign in to continue the onboarding steps.
+
+Observations:
+- Navigated to http://localhost:3001/login and the page shows '404 This page could not be found.'
+- No login form fields are present; only navigation links and the 404 message are visible.
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/b37eaa29-5ab0-4dd9-8491-80a8673e0b85
+- **Status:** BLOCKED
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC002 get apidebugtables returns database tables and row counts
-- **Test Code:** [TC002_get_apidebugtables_returns_database_tables_and_row_counts.py](./TC002_get_apidebugtables_returns_database_tables_and_row_counts.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 27, in <module>
-  File "<string>", line 12, in test_get_apidebugtables_returns_tables_and_row_counts
-AssertionError: Expected 200 OK, got 403
+#### Test TC002 Apply region and degree filters to refine Core Promise job results
+- **Test Code:** [TC002_Apply_region_and_degree_filters_to_refine_Core_Promise_job_results.py](./TC002_Apply_region_and_degree_filters_to_refine_Core_Promise_job_results.py)
+- **Test Error:** TEST BLOCKED
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/bc5a82e5-aed3-43d3-9c36-1cc66d8e32c8
-- **Status:** ❌ Failed
+The login flow is not reachable — I cannot access the dashboard to verify filters as a returning user.
+
+Observations:
+- Clicking 'Sign in' did not open a login modal or show email/password fields.
+- Navigating to /login returned a 404 page.
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/adb6a063-fc87-4c56-8f81-89355da47ddb
+- **Status:** BLOCKED
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC003 post apisyncuser upserts user record from google oauth payload
-- **Test Code:** [TC003_post_apisyncuser_upserts_user_record_from_google_oauth_payload.py](./TC003_post_apisyncuser_upserts_user_record_from_google_oauth_payload.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 44, in <module>
-  File "<string>", line 21, in test_post_api_sync_user_upsert_user
-AssertionError: Expected 200 OK but got 403
+#### Test TC003 Update direction or degree criteria and refresh results
+- **Test Code:** [TC003_Update_direction_or_degree_criteria_and_refresh_results.py](./TC003_Update_direction_or_degree_criteria_and_refresh_results.py)
+- **Test Error:** TEST BLOCKED
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/964c7ab1-2a8c-42ce-8a60-eb609bcab8a7
-- **Status:** ❌ Failed
+The feature could not be reached — the login page and login form are not accessible, so the test cannot proceed.
+
+Observations:
+- Navigating to /login showed a 404 page with the message 'This page could not be found.'
+- No login form fields (email/password) are visible on the page.
+- Clicking the 'Sign in' link did not reveal a login form in previous attempts.
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/73a36ebd-58de-4437-93c5-375b37be3120
+- **Status:** BLOCKED
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC004 get apime returns authenticated user profile
-- **Test Code:** [TC004_get_apime_returns_authenticated_user_profile.py](./TC004_get_apime_returns_authenticated_user_profile.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 43, in <module>
-  File "<string>", line 16, in test_get_api_me_authenticated_and_unauthenticated
-AssertionError: Sync user failed with status 403
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/fabb7fd2-c8e4-433d-b3a1-5f34ee23412d
-- **Status:** ❌ Failed
+#### Test TC004 Submit a valid job URL in the demo verifier to see a verification result
+- **Test Code:** [TC004_Submit_a_valid_job_URL_in_the_demo_verifier_to_see_a_verification_result.py](./TC004_Submit_a_valid_job_URL_in_the_demo_verifier_to_see_a_verification_result.py)
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/88ffe0fe-3453-4f6b-8179-587032adc8cf
+- **Status:** ✅ Passed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC005 post apiparse parses uploaded resume and returns structured fields
-- **Test Code:** [TC005_post_apiparse_parses_uploaded_resume_and_returns_structured_fields.py](./TC005_post_apiparse_parses_uploaded_resume_and_returns_structured_fields.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 96, in <module>
-  File "<string>", line 48, in test_post_api_parse_resume_parsing
-  File "<string>", line 32, in post_parse
-AssertionError: Expected status 200 but got 403, response: 
+#### Test TC005 Reject non-PDF/DOCX resume uploads during onboarding
+- **Test Code:** [TC005_Reject_non_PDFDOCX_resume_uploads_during_onboarding.py](./TC005_Reject_non_PDFDOCX_resume_uploads_during_onboarding.py)
+- **Test Error:** TEST BLOCKED
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/02deb767-d401-4ebf-ad18-570b3084adff
-- **Status:** ❌ Failed
+The onboarding flow could not be reached because the site redirected to Google OAuth sign-in and I do not have credentials to complete that sign-in.
+
+Observations:
+- Clicking 'Try free — no card needed' redirected to the Google Accounts sign-in page.
+- The Google sign-in form is displayed and the onboarding/upload UI is not accessible without completing OAuth.
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/a52bc121-b56c-4af4-a307-f8499628f711
+- **Status:** BLOCKED
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC006 post apisearch returns jobs filtered by core promise
-- **Test Code:** [TC006_post_apisearch_returns_jobs_filtered_by_core_promise.py](./TC006_post_apisearch_returns_jobs_filtered_by_core_promise.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 99, in <module>
-  File "<string>", line 28, in test_post_api_search_core_promise
-AssertionError: Expected 200 for valid request, got 403
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/afa5d56f-72a1-4c41-b84f-6239e3baa42e
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC007 post apigeneratecls generates cover letter for job
-- **Test Code:** [TC007_post_apigeneratecls_generates_cover_letter_for_job.py](./TC007_post_apigeneratecls_generates_cover_letter_for_job.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 100, in <module>
-  File "<string>", line 34, in test_post_api_generate_cls
-AssertionError: Job search failed with 403
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/ae232108-2d9f-4f28-8d11-99add21957b7
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC008 get apigenerateclsstream streams cover letter generation tokens
-- **Test Code:** [TC008_get_apigenerateclsstream_streams_cover_letter_generation_tokens.py](./TC008_get_apigenerateclsstream_streams_cover_letter_generation_tokens.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 78, in <module>
-  File "<string>", line 32, in test_get_generate_cls_stream
-AssertionError: Expected 200 for /api/search but got 403
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/9d673982-b37c-4f35-bcc2-ad35c448b320
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC009 get apidemoverify verifies job url open status
-- **Test Code:** [TC009_get_apidemoverify_verifies_job_url_open_status.py](./TC009_get_apidemoverify_verifies_job_url_open_status.py)
-- **Test Error:** Traceback (most recent call last):
-  File "<string>", line 15, in test_get_apidemo_verify
-AssertionError: Expected 200, got 403
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 32, in <module>
-  File "<string>", line 20, in test_get_apidemo_verify
-AssertionError: Failed valid url test: Expected 200, got 403
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/2b3fd49b-d71a-440c-8b50-40d8764092dd
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC010 post apistripecreatecheckout creates stripe checkout session
-- **Test Code:** [TC010_post_apistripecreatecheckout_creates_stripe_checkout_session.py](./TC010_post_apistripecreatecheckout_creates_stripe_checkout_session.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 57, in <module>
-  File "<string>", line 30, in test_post_apistripecreatecheckout_creates_stripe_checkout_session
-  File "<string>", line 23, in get_auth_token
-AssertionError: User sync failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/ae7120ff-9a17-44f8-9761-14be2be1818e/9d7e4fc8-2276-4bcd-a546-d930d4ff63d6
-- **Status:** ❌ Failed
+#### Test TC006 Reject malformed URLs in the demo verifier
+- **Test Code:** [TC006_Reject_malformed_URLs_in_the_demo_verifier.py](./TC006_Reject_malformed_URLs_in_the_demo_verifier.py)
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/3091907b-8a62-4b6a-bbdd-bff6ce501730/f7627652-dc04-42f9-841c-f4a21c7468a8
+- **Status:** ✅ Passed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
 
 ## 3️⃣ Coverage & Matching Metrics
 
-- **0.00** of tests passed
+- **33.33** of tests passed
 
 | Requirement        | Total Tests | ✅ Passed | ❌ Failed  |
 |--------------------|-------------|-----------|------------|

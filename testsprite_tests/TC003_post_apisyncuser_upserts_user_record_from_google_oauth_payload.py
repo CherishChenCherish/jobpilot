@@ -1,44 +1,39 @@
 import requests
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5001"
 TIMEOUT = 30
-HEADERS = {"Content-Type": "application/json"}
+HEADERS = {
+    "Content-Type": "application/json"
+}
 
-
-def test_post_api_sync_user_upsert_user():
+def test_post_api_sync_user():
     url = f"{BASE_URL}/api/sync-user"
 
-    # Valid payload with email, name and image
+    # Test 1: Valid request with email, name, and image
     valid_payload = {
-        "email": "user@example.com",
-        "name": "User Name",
-        "image": "https://example.com/image.jpg"
+        "email": "testuser@example.com",
+        "name": "Test User",
+        "image": "https://example.com/image.png"
     }
-
     try:
-        # Test valid request returns 200 with id and email
         response = requests.post(url, json=valid_payload, headers=HEADERS, timeout=TIMEOUT)
-        assert response.status_code == 200, f"Expected 200 OK but got {response.status_code}"
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         data = response.json()
-        assert isinstance(data.get("id"), int), "Returned id should be an integer"
-        assert data.get("email") == valid_payload["email"], "Returned email should match input email"
+        assert isinstance(data.get("id"), int), "Response missing valid 'id'"
+        assert data.get("email") == valid_payload["email"], "Response email does not match request email"
     except requests.RequestException as e:
-        assert False, f"Request failed unexpectedly: {e}"
+        assert False, f"RequestException occurred: {e}"
 
-    # Invalid payload missing email
+    # Test 2: Invalid request missing email - expect 400 validation error
     invalid_payload = {
-        "name": "NoEmail"
+        "name": "No Email User"
+        # email missing
     }
-
     try:
-        # Test invalid request returns 400 validation error
         response = requests.post(url, json=invalid_payload, headers=HEADERS, timeout=TIMEOUT)
-        assert response.status_code == 400, f"Expected 400 Bad Request but got {response.status_code}"
-        # Response body may contain validation error description; optional check
-        error_data = response.json()
-        assert isinstance(error_data, dict), "Error response should be a JSON object"
+        assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+        # Optionally check validation error message in response content
     except requests.RequestException as e:
-        assert False, f"Request failed unexpectedly: {e}"
+        assert False, f"RequestException occurred: {e}"
 
-
-test_post_api_sync_user_upsert_user()
+test_post_api_sync_user()

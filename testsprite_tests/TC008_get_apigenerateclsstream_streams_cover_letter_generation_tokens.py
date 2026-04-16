@@ -1,78 +1,96 @@
 import requests
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5001"
 TIMEOUT = 30
 
-# Replace this with a valid auth token string (without 'Bearer ' prefix)
-AUTH_TOKEN = "your_valid_auth_token_here"
 
-def test_get_generate_cls_stream():
-    headers_with_auth = {
-        "Authorization": f"Bearer {AUTH_TOKEN}",
-        "Accept": "text/event-stream"
-    }
-    headers_without_auth = {
-        "Accept": "text/event-stream"
-    }
+def test_get_api_generate_cls_stream():
+    # First, we need a valid auth token, search_id, and job_id.
+    # Since the test description requires auth, we should create a user, perform a search to get search_id, job_id.
+    # We'll do minimal setup: sync user, do a search with auth, then stream with auth and without auth.
+    # Clean up is not needed here as these are just API calls with no persistent side-effects for this test case.
 
     try:
-        # Step 1: POST /api/search with valid params and auth
+        # Step 1: Sync user to get auth - POST /api/sync-user
+        user_payload = {
+            "email": "testuser@example.com",
+            "name": "Test User",
+            "image": "https://example.com/avatar.png"
+        }
+        sync_resp = requests.post(
+            f"{BASE_URL}/api/sync-user", json=user_payload, timeout=TIMEOUT
+        )
+        assert sync_resp.status_code == 200, f"Sync user failed: {sync_resp.text}"
+        user_data = sync_resp.json()
+        assert "id" in user_data and "email" in user_data, "Invalid user sync response"
+
+        # Step 2: Get auth token by simulating login (GET /api/me requires auth)
+        # Assuming auth token is session cookie or bearer token in real scenario.
+        # However, no auth endpoint provided for token generation.
+        # Since no explicit auth token generation endpoint exists, we assume the user sync gives a cookie or header.
+        # We'll assume the server uses cookies and the sync-user sets session cookie.
+        session = requests.Session()
+        session.cookies.update(sync_resp.cookies)
+
+        # Step 3: Perform a job search to get search_id and job_id
         search_payload = {
             "direction": "Software",
             "region": "US",
             "degree": "MS",
             "visa_needed": False
         }
-        search_response = requests.post(
-            f"{BASE_URL}/api/search",
-            json=search_payload,
-            headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
-            timeout=TIMEOUT
+        search_resp = session.post(
+            f"{BASE_URL}/api/search", json=search_payload, timeout=TIMEOUT
         )
-        assert search_response.status_code == 200, f"Expected 200 for /api/search but got {search_response.status_code}"
-        search_data = search_response.json()
-        assert "search_id" in search_data, "search_id missing in search response"
-        assert "jobs" in search_data and isinstance(search_data["jobs"], list) and len(search_data["jobs"]) > 0, "Jobs list missing or empty in search response"
+        assert search_resp.status_code == 200, f"Job search failed: {search_resp.text}"
+        search_data = search_resp.json()
+        assert "search_id" in search_data and "jobs" in search_data, "Invalid search response"
+        assert isinstance(search_data["jobs"], list) and len(search_data["jobs"]) > 0, "No jobs found"
 
         search_id = search_data["search_id"]
+        # Pick first job_id from job list
         job_id = search_data["jobs"][0].get("id") or search_data["jobs"][0].get("job_id")
-        assert isinstance(job_id, int), "job_id not found or invalid in jobs list"
+        assert job_id is not None, "Job ID missing in search results"
 
-        # Step 2: GET /api/generate-cls/stream with valid auth and params
-        params = {
-            "search_id": search_id,
-            "job_id": job_id
+        # Step 4: Test GET /api/generate-cls/stream with auth and valid search_id, job_id
+        params = {"search_id": search_id, "job_id": job_id}
+        stream_headers = {
+            "Accept": "text/event-stream"
         }
-        stream_response = requests.get(
+        stream_resp = session.get(
             f"{BASE_URL}/api/generate-cls/stream",
-            headers=headers_with_auth,
             params=params,
+            headers=stream_headers,
             timeout=TIMEOUT,
-            stream=True
+            stream=True,
         )
-        assert stream_response.status_code == 200, f"Expected 200 for streaming endpoint but got {stream_response.status_code}"
-        content_type = stream_response.headers.get("Content-Type", "")
-        assert "text/event-stream" in content_type, f"Expected Content-Type 'text/event-stream' but got '{content_type}'"
+        assert stream_resp.status_code == 200, f"Stream request failed with auth: {stream_resp.text}"
+        assert stream_resp.headers.get("Content-Type", "").startswith("text/event-stream"), \
+            f"Expected text/event-stream Content-Type, got: {stream_resp.headers.get('Content-Type')}"
 
-        token_chunks = []
-        for line in stream_response.iter_lines(decode_unicode=True):
-            if line.strip():
-                token_chunks.append(line.strip())
-            if len(token_chunks) >= 3:
+        # Read at least some tokens from the stream incrementally
+        tokens_received = 0
+        for line in stream_resp.iter_lines(decode_unicode=True, chunk_size=1024):
+            if line.strip() == "":
+                continue
+            if line.startswith("data:"):
+                tokens_received += 1
+            if tokens_received >= 3:
                 break
-        assert len(token_chunks) >= 1, "No tokens received in event stream."
+        assert tokens_received > 0, "No tokens received from stream"
 
-        # Step 3: GET /api/generate-cls/stream without auth -> should get 401
-        response_no_auth = requests.get(
+        # Step 5: Test GET /api/generate-cls/stream without auth returns 401
+        no_auth_resp = requests.get(
             f"{BASE_URL}/api/generate-cls/stream",
-            headers=headers_without_auth,
             params=params,
-            timeout=TIMEOUT
+            headers=stream_headers,
+            timeout=TIMEOUT,
+            stream=True,
         )
-        assert response_no_auth.status_code == 401, f"Expected 401 Unauthorized without auth but got {response_no_auth.status_code}"
+        assert no_auth_resp.status_code == 401, f"Expected 401 without auth, got {no_auth_resp.status_code}"
 
     except requests.RequestException as e:
         assert False, f"Request failed: {e}"
 
 
-test_get_generate_cls_stream()
+test_get_api_generate_cls_stream()

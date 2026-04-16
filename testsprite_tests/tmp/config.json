@@ -1,9 +1,8 @@
 {
-  "status": "init",
+  "status": "commited",
+  "type": "frontend",
   "scope": "codebase",
-  "type": "backend",
-  "localEndpoint": "http://localhost:5000/",
-  "serverPort": 50102,
+  "localEndpoint": "http://localhost:3001",
   "executionArgs": {
     "projectName": "jobpilot",
     "projectPath": "/Users/meiguowashington/Desktop/jobpilot",
@@ -11,8 +10,9 @@
     "additionalInstruction": "",
     "serverMode": "development",
     "envs": {
-      "API_KEY": "sk-user-v4yca8zfXxsCqnem5umh86Ksn8CFGX9HRd8vusz5I05IA9LICaiRyCns94a-2GmcE0G7oK9sDu1dinKMU51S17uczu1WHuHu1sP64ipTCCgmxPB52m9hSGTpR2U7_Qy-QLI"
+      "API_KEY": "sk-user-NpQDq0EvJzI9hQhhVkH8jNKuHu8IKmCNck9atTJpffM1HGGS_kZlzxbYMOvSwBEt4L6b3emEz9fK3iUppn5tyq--fPOCslb79EEs92N2SXifU9VMYhe0hvVhuZVUrY7smzo"
     }
   },
-  "proxy": "http://ef3c879b-6442-4204-acac-a8cd7479edb4:mYv6S0giooKQKxrapjJf60JaqpErqG3v@tun.testsprite.com:8080"
+  "serverPort": 54447,
+  "proxy": "http://96187fc9-d470-4b18-ae86-12e7f04d3a0d:bV0KEaEIwTr7YnbPxzGjpRwc10Bi3dIe@tun.testsprite.com:8080"
 }

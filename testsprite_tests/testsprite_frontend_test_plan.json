@@ -1,0 +1,236 @@
+[
+  {
+    "id": "TC001",
+    "title": "Complete onboarding with profile criteria and a PDF/DOCX resume to reach parsed profile and initial results",
+    "description": "Verifies that a signed-in user can complete onboarding by selecting region/direction/degree/visa needs, uploading a PDF/DOCX resume, and then see a parsed profile summary and initial job results.",
+    "category": "Onboarding & Resume Upload",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Select a region"
+      },
+      {
+        "type": "action",
+        "description": "Select a direction"
+      },
+      {
+        "type": "action",
+        "description": "Select a degree"
+      },
+      {
+        "type": "action",
+        "description": "Select a visa needs option"
+      },
+      {
+        "type": "action",
+        "description": "Upload a valid PDF or DOCX resume file"
+      },
+      {
+        "type": "action",
+        "description": "Submit onboarding"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a parsed profile summary is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify job search results are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Apply region and degree filters to refine Core Promise job results",
+    "description": "Verifies that a returning user can apply region and degree filters on the dashboard and see the job list update while still showing only Core Promise–gated results.",
+    "category": "Dashboard — Job Search & Core Promise Results",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Select a region filter option"
+      },
+      {
+        "type": "action",
+        "description": "Select a degree filter option"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the job results list reflects the selected filters and indicates jobs passed the Core Promise gate"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC003",
+    "title": "Update direction or degree criteria and refresh results",
+    "description": "Verifies that a user can update direction or degree criteria on the dashboard and see the job results refresh to match the updated criteria.",
+    "category": "Dashboard — Job Search & Core Promise Results",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Select a different direction value"
+      },
+      {
+        "type": "action",
+        "description": "Select a different degree value"
+      },
+      {
+        "type": "action",
+        "description": "Submit the updated criteria"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the job results list updates to reflect the new criteria and indicates jobs passed the Core Promise gate"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC004",
+    "title": "Submit a valid job URL in the demo verifier to see a verification result",
+    "description": "Verifies that a visitor can submit a valid job URL in the demo verification widget and see a verification result state displayed.",
+    "category": "Landing Page & Demo Verification",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid job posting URL into the demo job URL field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the demo verification request"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a demo verification result state is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC005",
+    "title": "Reject non-PDF/DOCX resume uploads during onboarding",
+    "description": "Verifies that attempting to upload an unsupported resume format during onboarding shows a validation error and prevents completion.",
+    "category": "Onboarding & Resume Upload",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Upload a resume file that is not a PDF or DOCX"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a resume file type validation error is visible"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC006",
+    "title": "Reject malformed URLs in the demo verifier",
+    "description": "Verifies that submitting an invalid or malformed URL in the demo widget shows a URL format validation message and does not show a verification result.",
+    "category": "Landing Page & Demo Verification",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill an invalid URL string into the demo job URL field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the demo verification request"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a URL validation error is visible"
+      }
+    ],
+    "priority": "Low"
+  }
+]
