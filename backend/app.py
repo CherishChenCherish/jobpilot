@@ -87,19 +87,20 @@ def debug_tables():
     try:
         from sqlalchemy import inspect, text
         inspector = inspect(db.engine)
-        tables = inspector.get_table_names()
+        table_names = inspector.get_table_names()
         db_url = str(app.config.get("SQLALCHEMY_DATABASE_URI", "?"))
-        # Mask credentials
         safe_url = db_url.split("@")[-1] if "@" in db_url else db_url[:30]
-        # Count cached jobs if table exists
-        cj_count = None
-        if "cached_jobs" in tables:
-            cj_count = db.session.execute(text("SELECT COUNT(*) FROM cached_jobs")).scalar()
+        tables = {}
+        for name in table_names:
+            try:
+                tables[name] = db.session.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar()
+            except Exception:
+                tables[name] = None
         return jsonify({
             "tables": tables,
             "db_host": safe_url[:60],
             "cached_jobs_exists": "cached_jobs" in tables,
-            "cached_jobs_count": cj_count,
+            "cached_jobs_count": tables.get("cached_jobs"),
         })
     except Exception as e:
         return jsonify({"error": str(e), "type": type(e).__name__}), 500
@@ -156,8 +157,11 @@ def demo_verify():
         except Exception:
             pass
 
+        status_str = a.get("status", "⚠ Unverified")
+        verified_open = "Open" in status_str and "Closed" not in status_str
         return jsonify({
-            "status": a.get("status", "⚠ Unverified"),
+            "verified_open": verified_open,
+            "status": status_str,
             "confidence": a.get("confidence", "low"),
             "reason": a.get("reason", "Could not determine"),
             "posting_age_days": a.get("posting_age_days"),
@@ -168,6 +172,7 @@ def demo_verify():
         })
     except Exception as e:
         return jsonify({
+            "verified_open": False,
             "status": "⚠ Unverified",
             "confidence": "low",
             "reason": f"Verification error: {str(e)[:80]}",
@@ -180,20 +185,28 @@ def demo_verify():
 @app.route("/api/sync-user", methods=["POST"])
 def sync_user():
     data = request.get_json() or {}
-    google_id = data.get("google_id")
-    if not google_id:
-        return jsonify({"error": "google_id required"}), 400
+    google_id = (data.get("google_id") or "").strip() or None
+    email = (data.get("email") or "").strip().lower()
 
-    user = User.query.filter_by(google_id=google_id).first()
+    if not google_id and not email:
+        return jsonify({"error": "email or google_id required"}), 400
+
+    user = None
+    if google_id:
+        user = User.query.filter_by(google_id=google_id).first()
+    if not user and email:
+        user = User.query.filter_by(email=email).first()
+        if user and google_id and (not user.google_id or user.google_id.startswith("email:")):
+            user.google_id = google_id
+            db.session.commit()
+
     if not user:
-        email = data.get("email", "")
-        # Auto-grant pro to admin accounts
         plan = "pro" if email in ("chrishchen2510@gmail.com", "cherishchen2510@gmail.com") else "free"
         user = User(
-            google_id=google_id,
+            google_id=google_id or f"email:{email}",
             email=email,
             name=data.get("name", ""),
-            avatar_url=data.get("avatar_url"),
+            avatar_url=data.get("avatar_url") or data.get("image"),
             plan=plan,
         )
         db.session.add(user)
@@ -293,19 +306,19 @@ def search_route():
     directions = prefs.get("directions", ["DS/ML"])
     selected_regions = prefs.get("regions", ["US"])
 
-    # ── Try cache first (instant, <2s) ──────────────────
+    # ── Cache-only search (no live verification in request path) ──
     cached_count = CachedJob.query.filter_by(is_active=True).count()
     logger.info("[search] Cache has %d active jobs, regions=%s", cached_count, selected_regions)
 
-    if cached_count >= 3:
-        # Query from cache — instant, filtered by region
+    # Cache-only: daily GitHub Actions cron owns all live verification.
+    # Empty cache → warming=true + pending discovery task enqueued.
+    if True:  # kept as block to preserve indentation of cache-path body
         query = CachedJob.query.filter(
             CachedJob.is_active == True,
             CachedJob.status == "open",
             CachedJob.region.in_(selected_regions)
         )
 
-        # Filter by directions (category + title relevance)
         import re as _re
         DIRECTION_TITLE_KEYWORDS = {
             "DS/ML": ["data scien", "machine learn", "ml ", "ai ", "analytics", "algorithm", "nlp", "deep learn"],
@@ -384,35 +397,6 @@ def search_route():
             "warming": warming,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-    else:
-        # ── Fallback: live search + verify (<20s) ──────────
-        logger.info("[search] Cache empty (%d), falling back to live search", cached_count)
-        all_jobs = run_search(profile, prefs)
-
-        if not all_jobs:
-            return jsonify({"jobs": [], "audit_summary": {"jobs_searched": 0}, "errors": ["No jobs found."]}), 200
-
-        verified = verify_all_jobs(all_jobs[:15], profile, prefs)
-        open_count = sum(1 for j in verified if j.get("audit", {}).get("status", "").startswith("\u2713"))
-        serialized = [_serialize_job(j) for j in verified]
-
-        # ── FINAL GATE: Core Promise ──────────────────────
-        promise_prefs = {
-            "regions": selected_regions,
-            "directions": directions,
-            "visa_needed": prefs.get("visa_needed", False),
-            "degree_level": profile.get("degree_level", "Master"),
-        }
-        result_jobs, promise_rejected = filter_by_promise(serialized, promise_prefs)
-        result_jobs = result_jobs[:10]
-
-        audit_summary = {
-            "jobs_searched": len(all_jobs), "jobs_verified": len(verified),
-            "jobs_open": open_count, "jobs_unverified": len(verified) - open_count,
-            "jobs_promise_rejected": len(promise_rejected),
-            "cl_generated": 0, "cl_status": "pending", "source": "live",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
 
     # ── Zero results: clear message, not blank ──────────
     if not result_jobs:
@@ -467,7 +451,9 @@ def generate_cls_route():
     if not jobs:
         return jsonify({"error": "No jobs provided. Send {jobs: [...], profile: {...}}"}), 422
 
-    cl_target = min(10, len(jobs))
+    # Blocking endpoint is capped to 1 job to stay under Cloudflare/tunnel 30s ceiling.
+    # For bulk generation use /api/generate-cls/stream.
+    cl_target = 1
     results = []
     errors = []
 
@@ -903,4 +889,4 @@ except Exception as e:
 # ── Run ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    app.run(debug=False, host="127.0.0.1", port=int(os.getenv("PORT", "5001")))
