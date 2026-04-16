@@ -1,18 +1,19 @@
 {
   "status": "commited",
-  "type": "frontend",
-  "scope": "codebase",
-  "localEndpoint": "http://localhost:3001",
+  "type": "backend",
+  "scope": "diff",
+  "localEndpoint": "http://localhost:5001",
+  "backendAuthType": "public",
   "executionArgs": {
     "projectName": "jobpilot",
     "projectPath": "/Users/meiguowashington/Desktop/jobpilot",
     "testIds": [],
-    "additionalInstruction": "",
+    "additionalInstruction": "Round 2 rerun after bug fixes. Key changes since Round 1: (1) /api/sync-user now accepts email-only payloads, google_id is optional; (2) /api/debug/tables now returns tables as a dict {name: count}; (3) /api/demo-verify now includes verified_open: boolean on ALL response branches including errors; (4) /api/search is cache-only now, no live fallback — local dev DB has empty cache so search returns 0 jobs with warming=true, this is expected behavior not a bug; (5) /api/generate-cls blocking endpoint is capped to 1 job to stay under 30s.",
     "serverMode": "development",
     "envs": {
       "API_KEY": "sk-user-NpQDq0EvJzI9hQhhVkH8jNKuHu8IKmCNck9atTJpffM1HGGS_kZlzxbYMOvSwBEt4L6b3emEz9fK3iUppn5tyq--fPOCslb79EEs92N2SXifU9VMYhe0hvVhuZVUrY7smzo"
     }
   },
-  "serverPort": 54447,
-  "proxy": "http://96187fc9-d470-4b18-ae86-12e7f04d3a0d:bV0KEaEIwTr7YnbPxzGjpRwc10Bi3dIe@tun.testsprite.com:8080"
+  "serverPort": 50460,
+  "proxy": "http://82dfa0d6-719e-4b0d-8a96-f02358178400:a2C01H74rHom4TCaCogTF5GU2B4R03Wa@tun.testsprite.com:8080"
 }
