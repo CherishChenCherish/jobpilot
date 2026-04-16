@@ -226,9 +226,11 @@ def sync_user():
 @app.route("/api/me")
 def me():
     google_id = request.args.get("google_id")
-    user = _get_user_or_mock(google_id)
-    if isinstance(user, dict):
-        return jsonify(user)
+    if not google_id:
+        return jsonify({"error": "Authentication required"}), 401
+    user = User.query.filter_by(google_id=google_id).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
     result = user.to_dict()
     result["searches_remaining"] = max(0, FREE_SEARCH_LIMIT - user.searches_used) if user.plan == "free" else 999
     return jsonify(result)
@@ -442,11 +444,18 @@ def generate_cls_route():
     jobs = data.get("jobs", [])
     profile = data.get("profile", {})
 
-    # Support alternative input format (job_id style from testing tools)
+    # Validate job_id input — must resolve to a real cached job
     if not jobs and data.get("job_id"):
-        jobs = [{"company": "Unknown", "title": "Position", "description_snippet": data.get("job_description", "")}]
+        from models import CachedJob
+        cj = CachedJob.query.get(data["job_id"])
+        if not cj:
+            return jsonify({"error": f"Job {data['job_id']} not found"}), 400
+        jobs = [cj.to_dict()]
     if not profile and data.get("user_id"):
-        profile = {"name": "User", "skills": [], "strongest_metrics": [], "work_history": []}
+        user = User.query.get(data["user_id"])
+        if not user:
+            return jsonify({"error": f"User {data['user_id']} not found"}), 400
+        profile = {"name": user.name, "skills": [], "strongest_metrics": [], "work_history": []}
 
     if not jobs:
         return jsonify({"error": "No jobs provided. Send {jobs: [...], profile: {...}}"}), 422
