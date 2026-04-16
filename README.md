@@ -60,20 +60,48 @@ User uploads resume
 
 ## Testing
 
+### Unit Tests
+
 ```bash
 cd backend
 python -m pytest -v       # 56 tests across 5 modules
 ```
 
-Tests cover: resume parsing, job search, verification, cover letter generation, and the Core Promise filter (including visa, degree, location, and direction rules).
-
 ```
-testsprite_tests/          # AI-generated test cases (TestSprite MCP)
 backend/test_parser.py     # Resume parsing edge cases
 backend/test_searcher.py   # Search API + deduplication
 backend/test_verifier.py   # Job verification (mocked + live)
 backend/test_promise.py    # Core Promise gate (37 scenarios)
 backend/test_generator.py  # Cover letter quality checks
+```
+
+### TestSprite Automated Testing (Hackathon Season 2)
+
+TestSprite auto-generated **16 tests** (10 backend API + 6 frontend UI) with zero manual test authoring, testing across the multi-service architecture (Vercel frontend → Railway backend → Greenhouse/Lever APIs).
+
+**3-round progression:**
+
+| Round | Pass Rate | What Happened |
+|-------|-----------|---------------|
+| Round 1 | 1/10 backend, 2/6 frontend | **5 real bugs found** — including a security vulnerability where `/api/me` returned user data without authentication |
+| Round 2 | 5/10 backend | Fixed 3 critical bugs, **400% pass rate improvement** |
+| Round 3 | 5/10 backend | Security vulnerability closed; remaining failures are test-environment data gaps |
+
+**Most impactful findings:**
+- **Security:** `/api/me` leaked full user data to unauthenticated requests — in production, with real user emails
+- **Cross-layer contract gap:** Frontend demo-verify test passed (happy path), while backend test for the same endpoint failed (error branch dropped `verified_open` field). Same feature, two layers, contradictory behavior
+- **Silent OAuth rejection:** `/api/sync-user` required an undocumented `google_id` field, silently rejecting email-only payloads
+- **Performance:** Search and cover letter endpoints exceeded Cloudflare's 30-second timeout ceiling
+
+```
+testsprite_tests/                          # All auto-generated test artifacts
+├── TC001-TC010_*.py                       # Backend API test cases
+├── TC001-TC006_*.py                       # Frontend UI test cases
+├── testsprite_backend_test_plan.json      # Generated test plan
+├── testsprite_frontend_test_plan.json
+├── testsprite-mcp-test-report.md          # Full test report
+├── ROUND1_FIX_PRIORITY.md                # Bug fix priority list
+└── tmp/raw_report.md                      # Raw TestSprite output
 ```
 
 ## Local Development
@@ -86,7 +114,7 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # Fill in your keys
 python migrate.py       # Create DB tables
-python app.py           # Starts on :5000
+python app.py           # Starts on :5001
 ```
 
 ### Frontend
