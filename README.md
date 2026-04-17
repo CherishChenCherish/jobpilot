@@ -3,6 +3,7 @@
 **AI-powered job search for international students.** Upload your resume, get verified open positions, and auto-generated cover letters — built for F-1 students who need visa sponsorship.
 
 **Live:** [jobpilot-plum.vercel.app](https://jobpilot-plum.vercel.app)
+**Demo:** [YouTube](https://www.youtube.com/watch?v=ume99w4AhnI)
 
 ---
 
