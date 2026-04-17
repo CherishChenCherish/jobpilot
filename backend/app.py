@@ -250,7 +250,7 @@ def parse_resume_route():
     if "file" in request.files:
         file = request.files["file"]
         if not file.filename:
-            return jsonify({"error": "Empty filename. Please select a file."}), 422
+            return jsonify({"error": "Empty filename. Please select a file."}), 400
         filename = file.filename
         file_bytes = file.read()
 
@@ -259,18 +259,18 @@ def parse_resume_route():
         data = request.get_json() or {}
         resume_b64 = data.get("resume", "")
         if not resume_b64:
-            return jsonify({"error": "No resume provided. Send a file via multipart/form-data or base64 in JSON body."}), 422
+            return jsonify({"error": "No resume provided. Send a file via multipart/form-data or base64 in JSON body."}), 400
         try:
             file_bytes = base64.b64decode(resume_b64)
         except Exception:
-            return jsonify({"error": "Invalid base64 encoding for resume."}), 422
+            return jsonify({"error": "Invalid base64 encoding for resume."}), 400
         filename = data.get("filename", "upload.docx")
 
     else:
-        return jsonify({"error": "No file uploaded. Send as multipart/form-data with key 'file', or JSON with base64 'resume' field."}), 422
+        return jsonify({"error": "No file uploaded. Send as multipart/form-data with key 'file', or JSON with base64 'resume' field."}), 400
 
     if not file_bytes or len(file_bytes) == 0:
-        return jsonify({"error": "Resume file is empty. Please upload a valid PDF or DOCX file."}), 422
+        return jsonify({"error": "Resume file is empty. Please upload a valid PDF or DOCX file."}), 400
 
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in {"pdf", "docx", "doc"}:
@@ -284,7 +284,7 @@ def parse_resume_route():
         safe_json = json.dumps({"status": "parsed", "profile": profile}, ensure_ascii=True)
         return app.response_class(safe_json, mimetype='application/json')
     except ParseError as e:
-        return jsonify({"error": str(e)}), 422
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"Unexpected: {str(e)}"}), 500
 
@@ -292,7 +292,7 @@ def parse_resume_route():
 # ── POST /api/search — INSTANT from cache, fallback to live ──
 
 @app.route("/api/search", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("30 per minute")
 def search_route():
     import re as _re
     data = request.get_json() or {}
@@ -438,7 +438,7 @@ def search_route():
 # Called AFTER /api/search returns jobs. This is the slow part.
 
 @app.route("/api/generate-cls", methods=["POST"])
-@limiter.limit("3 per minute")
+@limiter.limit("10 per minute")
 def generate_cls_route():
     data = request.get_json() or {}
     jobs = data.get("jobs", [])
@@ -458,7 +458,7 @@ def generate_cls_route():
         profile = {"name": user.name, "skills": [], "strongest_metrics": [], "work_history": []}
 
     if not jobs:
-        return jsonify({"error": "No jobs provided. Send {jobs: [...], profile: {...}}"}), 422
+        return jsonify({"error": "No jobs provided. Send {jobs: [...], profile: {...}}"}), 400
 
     # Blocking endpoint is capped to 1 job to stay under Cloudflare/tunnel 30s ceiling.
     # For bulk generation use /api/generate-cls/stream.
