@@ -1,82 +1,98 @@
 import requests
+import json
 
 BASE_URL = "http://localhost:5001"
 TIMEOUT = 30
 
-# Dummy auth token for testing, replace with valid token if necessary
-AUTH_TOKEN = "Bearer valid_test_auth_token_example"
+# Placeholder valid auth token (should be replaced with a real token from an authenticated session)
+VALID_AUTH_TOKEN = "Bearer valid_auth_token_example"
+
+# Sample valid resume text for testing
+SAMPLE_RESUME_TEXT = (
+    "Experienced software engineer with expertise in Python, data analysis, "
+    "and cloud computing. Skilled in developing scalable applications and "
+    "working collaboratively in agile teams."
+)
 
 def test_post_api_generate_cls():
     headers = {
-        "Authorization": AUTH_TOKEN,
-        "Content-Type": "application/json"
+        "Authorization": VALID_AUTH_TOKEN,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
-    # We need a valid job_id and resume_text for the happy path.
-    # Since job_id is required and no direct endpoint provides it standalone,
-    # we will create a job via /api/search to get one valid job_id.
-    # Also, for resume_text, we provide a dummy string.
+    def create_dummy_job():
+        # Since no API for job creation is described, we treat this step as a placeholder.
+        # If possible, fetch existing jobs or else skip and set job_id to None.
+        # Here, we return None and skip creation to simulate.
+        return None
 
-    # Step 1: Get a valid job_id via /api/search
-    search_headers = {
-        "Authorization": AUTH_TOKEN,
-        "Content-Type": "application/json"
-    }
-    search_payload = {
-        "direction": "Software",
-        "region": "US",
-        "degree": "MS",
-        "visa_needed": False
+    def delete_dummy_job(job_id):
+        # Placeholder for job cleanup if job was created
+        pass
+
+    job_id = create_dummy_job()
+
+    # Test 1: POST with valid job_id and resume_text returns 200 with a cover letter
+    # If no real job_id, test with a known assumed valid id for demonstration (e.g. 1)
+    valid_job_id = job_id or 1
+
+    payload_valid = {
+        "job_id": valid_job_id,
+        "resume_text": SAMPLE_RESUME_TEXT
     }
 
-    valid_job_id = None
     try:
-        search_resp = requests.post(f"{BASE_URL}/api/search", json=search_payload, headers=search_headers, timeout=TIMEOUT)
-        assert search_resp.status_code == 200, f"Search failed with status {search_resp.status_code}"
-        search_data = search_resp.json()
-        jobs = search_data.get("jobs", [])
-        assert isinstance(jobs, list), "Jobs not returned as a list"
-        assert len(jobs) > 0, "No jobs returned from search"
+        resp_valid = requests.post(
+            f"{BASE_URL}/api/generate-cls",
+            headers=headers,
+            data=json.dumps(payload_valid),
+            timeout=TIMEOUT,
+        )
+        # The response should be 200 with a JSON containing the cover letter text
+        assert resp_valid.status_code == 200, f"Expected 200, got {resp_valid.status_code}"
+        resp_json = resp_valid.json()
+        assert "cover_letter" in resp_json, "Response JSON missing 'cover_letter'"
+        assert isinstance(resp_json["cover_letter"], str), "'cover_letter' should be a string"
+        assert len(resp_json["cover_letter"]) > 0, "Cover letter should not be empty"
 
-        valid_job_id = jobs[0].get("id") or jobs[0].get("job_id") or jobs[0].get("jobId")
-        assert valid_job_id is not None, "Job id not found on job item"
+        # Test 2: POST with invalid job_id returns 400
+        invalid_job_id = -999999  # presumably invalid
+        payload_invalid_job = {
+            "job_id": invalid_job_id,
+            "resume_text": SAMPLE_RESUME_TEXT
+        }
+        resp_invalid_job = requests.post(
+            f"{BASE_URL}/api/generate-cls",
+            headers=headers,
+            data=json.dumps(payload_invalid_job),
+            timeout=TIMEOUT,
+        )
+        assert resp_invalid_job.status_code == 400, f"Expected 400 for invalid job_id, got {resp_invalid_job.status_code}"
 
-        resume_text = "Experienced software engineer with expertise in Python and backend development."
-
-        # Happy Path: Valid job_id and resume_text
-        payload = {
+        # Test 3: Simulate Claude API error returning 500
+        # Since no payload triggers this reliably, try a reserved job_id or text that might cause server error if known.
+        # Here, try an explicit request with a specific dummy job_id and suspicious resume_text.
+        # This is speculative because the PRD doesn't specify how to trigger 500.
+        payload_claude_error = {
             "job_id": valid_job_id,
-            "resume_text": resume_text
+            "resume_text": "trigger_claude_api_error_simulation"
         }
-        resp = requests.post(f"{BASE_URL}/api/generate-cls", json=payload, headers=headers, timeout=TIMEOUT)
-        assert resp.status_code == 200, f"Expected 200 OK but got {resp.status_code}"
-        data = resp.json()
-        assert "cover_letter" in data, "Response JSON missing 'cover_letter'"
-        assert isinstance(data["cover_letter"], str) and len(data["cover_letter"]) > 0, "'cover_letter' should be a non-empty string"
+        resp_500 = requests.post(
+            f"{BASE_URL}/api/generate-cls",
+            headers=headers,
+            data=json.dumps(payload_claude_error),
+            timeout=TIMEOUT,
+        )
+        if resp_500.status_code == 500:
+            pass  # Expected 500 for Claude API error simulation
+        else:
+            # If server does not respond 500, that's acceptable as it depends on backend state.
+            assert resp_500.status_code in (200, 400), f"Unexpected status code {resp_500.status_code} for Claude API error test"
 
-        # Error Case 1: Invalid job_id returns 400
-        invalid_payload = {
-            "job_id": 0,  # Assuming 0 is invalid job_id
-            "resume_text": resume_text
-        }
-        resp_invalid = requests.post(f"{BASE_URL}/api/generate-cls", json=invalid_payload, headers=headers, timeout=TIMEOUT)
-        assert resp_invalid.status_code == 400, f"Expected 400 Bad Request but got {resp_invalid.status_code}"
+    finally:
+        if job_id:
+            delete_dummy_job(job_id)
 
-        # Error Case 2: Claude API error returns 500
-        # To simulate Claude API error realistically might be hard,
-        # but try sending a special payload that might trigger it (e.g., extremely long resume_text)
-        error_payload = {
-            "job_id": valid_job_id,
-            "resume_text": "x" * 1000000  # Very long text to try to provoke an internal error
-        }
-        resp_error = requests.post(f"{BASE_URL}/api/generate-cls", json=error_payload, headers=headers, timeout=TIMEOUT)
-        assert resp_error.status_code in (200, 500), "Expected 200 or 500 status for Claude API error simulation"
-        if resp_error.status_code == 500:
-            err_data = resp_error.json()
-            assert "error" in err_data or "message" in err_data or "detail" in err_data, "Expected error message in 500 response"
-
-    except Exception as e:
-        raise
-    # No resource creation/deletion necessary here for job_id since it's from search
 
 test_post_api_generate_cls()

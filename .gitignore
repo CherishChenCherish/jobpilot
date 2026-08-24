@@ -15,3 +15,6 @@ frontend/.env
 # OS
 .DS_Store
 *.swp
+
+# TestSprite 运行产物（含 API key / 隧道凭证，禁止入库）
+testsprite_tests/tmp/

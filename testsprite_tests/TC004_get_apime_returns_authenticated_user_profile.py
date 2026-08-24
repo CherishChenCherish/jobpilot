@@ -3,61 +3,43 @@ import requests
 BASE_URL = "http://localhost:5001"
 TIMEOUT = 30
 
-def test_get_apime_authenticated_user_profile():
+def test_get_apime_authenticated_and_unauthenticated():
     """
-    Test GET /api/me endpoint:
-    - with valid authentication returns 200 with full user profile
-    - without authentication returns 401 Unauthorized
+    Verify GET /api/me with valid auth returns 200 with full user profile,
+    and without auth returns 401 unauthorized.
     """
 
-    # Step 1: Create a user by syncing via /api/sync-user (no auth required)
-    sync_user_url = f"{BASE_URL}/api/sync-user"
-    user_data = {
-        "email": "testuser@example.com",
-        "name": "Test User",
-        "image": "https://example.com/avatar.png"
-    }
+    url = f"{BASE_URL}/api/me"
+
+    # 1. Without auth, no google_id param - should return 401 Unauthorized
     try:
-        resp_sync = requests.post(sync_user_url, json=user_data, timeout=TIMEOUT)
-        assert resp_sync.status_code == 200, f"Sync user failed with status {resp_sync.status_code}"
-        user_resp = resp_sync.json()
-        assert "id" in user_resp and "email" in user_resp
-        user_id = user_resp["id"]
+        resp_unauth = requests.get(url, timeout=TIMEOUT)
+    except requests.RequestException as e:
+        assert False, f"Request without auth failed unexpectedly: {e}"
+    assert resp_unauth.status_code == 401, f"Expected 401 without auth but got {resp_unauth.status_code}"
 
-        # Normally auth token or session cookie is needed.
-        # Since the PRD doesn't specify auth mechanism,
-        # assume the API issues a session cookie or auth token on sync-user or login.
-        # Since sync-user has no auth, assume it may not set cookie; we simulate auth by fetching a token.
-        # The PRD doesn't mention login or token endpoint.
-        # For test, assume that sync-user returns a Set-Cookie or token in header or body.
-        # No explicit token given, so we try to use the session cookie from the sync-user request if set.
-        # Otherwise, we simulate a Bearer token header with email as token (common in test).
-        session_cookies = resp_sync.cookies
+    # 2. With auth - valid google_id param - expect 200 and full user profile
+    # Since no auth mechanism or token is described, and the API fixes mention google_id param is required,
+    # pass google_id as query parameter to simulate auth.
+    # Assuming 'test-google-id-12345' is a valid google_id for test.
+    params = {"google_id": "test-google-id-12345"}
 
-        headers_auth = {}
-        if session_cookies:
-            # Use session cookie for auth
-            headers_auth["Cookie"] = "; ".join([f"{c.name}={c.value}" for c in session_cookies])
-        else:
-            # Fallback: use Authorization header with fake token matching email, as no real auth provided
-            headers_auth["Authorization"] = f"Bearer {user_data['email']}"
+    try:
+        resp_auth = requests.get(url, params=params, timeout=TIMEOUT)
+    except requests.RequestException as e:
+        assert False, f"Request with auth failed unexpectedly: {e}"
 
-        # Step 2: Access /api/me with auth
-        me_url = f"{BASE_URL}/api/me"
-        resp_auth = requests.get(me_url, headers=headers_auth, timeout=TIMEOUT)
-        assert resp_auth.status_code == 200, f"Authenticated /api/me returned status {resp_auth.status_code}"
+    assert resp_auth.status_code == 200, f"Expected 200 with auth but got {resp_auth.status_code}"
+
+    # Validate response content: full user profile expected JSON keys (based on standard user profile fields)
+    try:
         profile = resp_auth.json()
-        # Check that profile contains expected keys: id, email, name, possibly image (user model)
-        assert profile.get("email") == user_data["email"], "Email mismatch in user profile"
-        assert "id" in profile and profile["id"] == user_id, "User ID mismatch in profile"
-        assert "name" in profile and profile["name"] == user_data["name"], "Name mismatch in user profile"
+    except ValueError:
+        assert False, "Response is not valid JSON."
 
-        # Step 3: Access /api/me without auth
-        resp_no_auth = requests.get(me_url, timeout=TIMEOUT)
-        assert resp_no_auth.status_code == 401, f"Unauthorized /api/me returned status {resp_no_auth.status_code}"
+    # Minimum fields commonly expected in user profile for this product:
+    expected_fields = {"id", "email", "name", "region", "degree", "direction", "visa_needs", "image"}
+    missing_fields = expected_fields - profile.keys()
+    assert not missing_fields, f"Missing expected profile fields: {missing_fields}"
 
-    finally:
-        # Cleanup user resource if API supported delete - no delete user endpoint documented, so skip cleanup
-        pass
-
-test_get_apime_authenticated_user_profile()
+test_get_apime_authenticated_and_unauthenticated()

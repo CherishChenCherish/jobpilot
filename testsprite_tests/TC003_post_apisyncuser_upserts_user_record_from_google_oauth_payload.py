@@ -2,38 +2,46 @@ import requests
 
 BASE_URL = "http://localhost:5001"
 TIMEOUT = 30
-HEADERS = {
-    "Content-Type": "application/json"
-}
 
-def test_post_api_sync_user():
+def test_post_apisyncuser_upserts_user_record():
     url = f"{BASE_URL}/api/sync-user"
+    headers = {
+        "Content-Type": "application/json",
+    }
 
-    # Test 1: Valid request with email, name, and image
+    # Valid payload
     valid_payload = {
         "email": "testuser@example.com",
         "name": "Test User",
-        "image": "https://example.com/image.png"
+        "image": "https://example.com/avatar.png"
     }
+
+    # Test valid request
     try:
-        response = requests.post(url, json=valid_payload, headers=HEADERS, timeout=TIMEOUT)
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        response = requests.post(url, json=valid_payload, headers=headers, timeout=TIMEOUT)
+    except requests.RequestException as e:
+        assert False, f"Request failed: {e}"
+
+    assert response.status_code == 200, f"Expected status 200 but got {response.status_code}"
+    try:
         data = response.json()
-        assert isinstance(data.get("id"), int), "Response missing valid 'id'"
-        assert data.get("email") == valid_payload["email"], "Response email does not match request email"
-    except requests.RequestException as e:
-        assert False, f"RequestException occurred: {e}"
+    except ValueError:
+        assert False, "Response is not valid JSON"
 
-    # Test 2: Invalid request missing email - expect 400 validation error
+    assert "id" in data, "Response JSON missing 'id'"
+    assert data.get("email") == valid_payload["email"], f"Response email {data.get('email')} does not match request email {valid_payload['email']}"
+
+    # Test invalid request missing email
     invalid_payload = {
-        "name": "No Email User"
-        # email missing
+        "name": "No Email User",
+        "image": "https://example.com/avatar.png"
     }
-    try:
-        response = requests.post(url, json=invalid_payload, headers=HEADERS, timeout=TIMEOUT)
-        assert response.status_code == 400, f"Expected 400, got {response.status_code}"
-        # Optionally check validation error message in response content
-    except requests.RequestException as e:
-        assert False, f"RequestException occurred: {e}"
 
-test_post_api_sync_user()
+    try:
+        response_invalid = requests.post(url, json=invalid_payload, headers=headers, timeout=TIMEOUT)
+    except requests.RequestException as e:
+        assert False, f"Request failed: {e}"
+
+    assert response_invalid.status_code == 400, f"Expected status 400 but got {response_invalid.status_code}"
+
+test_post_apisyncuser_upserts_user_record()
